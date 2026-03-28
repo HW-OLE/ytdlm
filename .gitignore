@@ -1,0 +1,17 @@
+# Credentials - never commit these
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Tidal auth token
+token.json
+
+# System
+.DS_Store
+Thumbs.db
