@@ -1,109 +1,141 @@
 # yt-dlp Web Frontend
 
-A minimal locally hosted web app to download audio from YouTube and other platforms, with Tidal lossless support via a hifi-api instance and automatic Nextcloud sync after each download.
+A locally hosted web app to download audio from YouTube and other platforms, with optional Tidal lossless support via a hifi-api instance and optional Nextcloud sync.
 
 ## Features
 
 - Browser-based UI — no command line needed after setup
 - Three download modes:
-  - **Auto** — fetches the YouTube title, searches Tidal first, falls back to yt-dlp if not found
+  - **Auto** — fetches title and artist from YouTube, searches Tidal first, falls back to yt-dlp if not found
   - **Tidal** — search Tidal directly and download as FLAC
   - **yt-dlp** — download from YouTube or other platforms as Opus
-- Quality selector for Tidal downloads: Hi-Res FLAC, FLAC, AAC 320, AAC 96
-- Track preview before downloading — shows title, artist, duration and estimated file size
-- Live terminal output streamed directly into the browser
-- Automatically syncs to Nextcloud after each download
-- Track listing per folder — updates automatically after each download
-- All paths and credentials configurable via `.env`
+- Quality selector for Tidal: Hi-Res FLAC, FLAC, AAC 320, AAC 96
+- Preview card before downloading — shows matched track, duration and estimated file size
+- Smart Tidal search with multiple fallback strategies for obscure tracks
+- Live terminal output streamed into the browser
+- Track listing per folder, auto-refreshes after each download
+- Nextcloud sync is **opt-in** via `.env`
+- All paths configurable via `.env`
 
 ## Requirements
 
 - Python 3.8+
-- `yt-dlp_linux` binary in your home directory (`~/yt-dlp_linux`)
-- `nextcloudcmd` installed on the system
-- Access to a running hifi-api instance (e.g. `https://api.monochrome.tf`)
+- `yt-dlp` binary (see `YTDLP_BIN` in `.env.example`)
+- Access to a hifi-api instance (default: `https://api.monochrome.tf`)
+- `nextcloudcmd` installed — only needed if Nextcloud sync is enabled
 
 ```bash
-pip install flask python-dotenv requests
-chmod +x ~/yt-dlp_linux
+pip install -r requirements.txt
 ```
 
 ## Setup
 
-1. Clone or copy the project folder to your server or container.
+**1. Clone the repo and install dependencies**
 
-2. Create a `.env` file in the project root:
-
-```env
-NEXTCLOUD_USER=your_username
-NEXTCLOUD_PASSWORD=your_password
-NEXTCLOUD_URL=https://your-nextcloud-instance.com/nextcloud
-NEXTCLOUD_MUSIK_PATH=/Musik
-HIFI_API_URL=https://api.monochrome.tf
-MUSIK_DIR=/musik
+```bash
+git clone https://github.com/YOUR_USERNAME/ytdlp-webapp.git
+cd ytdlp-webapp
+pip install -r requirements.txt
 ```
 
-Variable reference:
+**2. Create your `.env` from the example**
 
-| Variable | Description |
-|---|---|
-| `NEXTCLOUD_USER` | Nextcloud login username |
-| `NEXTCLOUD_PASSWORD` | Nextcloud login password or app password |
-| `NEXTCLOUD_URL` | Full URL to your Nextcloud instance |
-| `NEXTCLOUD_MUSIK_PATH` | Remote path in Nextcloud to sync (default: `/Musik`) |
-| `HIFI_API_URL` | URL of the hifi-api instance for Tidal |
-| `MUSIK_DIR` | Local base directory containing your music subfolders |
+```bash
+cp .env.example .env
+```
 
-3. Adjust the folder names in `static/index.html` to match your subdirectories. The base path is loaded automatically from `MUSIK_DIR`:
+Then edit `.env` with your values. The only required variables to get started are `MUSIK_DIR`, `YTDLP_BIN` and `HIFI_API_URL`.
+
+**3. Adjust folder names in `static/index.html`**
+
+The base path is loaded automatically from `MUSIK_DIR`. You only need to update the folder names:
 
 ```html
 <button class="dir-btn" data-folder="Pop">Pop</button>
 ```
 
-4. If your system resolves hostnames via IPv6 but your server only has an IPv4 DNS entry, add a static entry to `/etc/hosts`:
+## Running
+
+**Development:**
+
+```bash
+python3 app.py
+```
+
+**Production (recommended):**
+
+```bash
+gunicorn -w 1 -k gthread --threads 4 -b 0.0.0.0:5000 --timeout 120 app:app
+```
+
+Then open **http://localhost:5000**.
+
+## Production Setup with systemd
+
+A ready-made service file is included.
+
+```bash
+# Edit the service file to match your username and paths
+nano ytdlp-webapp.service
+
+# Install and enable
+sudo cp ytdlp-webapp.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable ytdlp-webapp
+sudo systemctl start ytdlp-webapp
+sudo systemctl status ytdlp-webapp
+```
+
+## Enabling Nextcloud Sync
+
+By default sync is disabled. To enable it, set the following in your `.env`:
+
+```env
+NEXTCLOUD_ENABLED=true
+NEXTCLOUD_USER=your_username
+NEXTCLOUD_PASSWORD=your_password_or_app_password
+NEXTCLOUD_URL=https://your-nextcloud-instance.com/nextcloud
+NEXTCLOUD_MUSIK_PATH=/Musik
+```
+
+It is recommended to use an **app password** rather than your main Nextcloud password. Generate one under Nextcloud → Settings → Security → App passwords.
+
+If your container resolves hostnames via IPv6 but your server only has an IPv4 DNS entry, add a static entry to `/etc/hosts`:
 
 ```bash
 dig +short A your-nextcloud-instance.com
 echo "YOUR.IP.ADDRESS your-nextcloud-instance.com" | sudo tee -a /etc/hosts
 ```
 
-## Usage
+## Configuration Reference
 
-Start the server from inside the project folder:
-
-```bash
-cd ytdlp-webapp
-python3 app.py
-```
-
-Then open **http://localhost:5000** in your browser.
-
-1. Select a download mode (Auto / Tidal / yt-dlp)
-2. Select audio quality (for Tidal/Auto modes)
-3. Paste a URL or search query
-4. Click **Download starten** — a preview card appears showing the matched track and estimated size
-5. Confirm to start the download
-6. Watch live output in the terminal panel
-7. Nextcloud sync runs automatically when done
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `MUSIK_DIR` | Yes | `/musik` | Local base directory for music subfolders |
+| `YTDLP_BIN` | Yes | `~/yt-dlp_linux` | Path to yt-dlp binary |
+| `HIFI_API_URL` | Yes | `https://api.monochrome.tf` | hifi-api instance URL |
+| `NEXTCLOUD_ENABLED` | No | `false` | Set to `true` to enable sync |
+| `NEXTCLOUD_USER` | If enabled | — | Nextcloud username |
+| `NEXTCLOUD_PASSWORD` | If enabled | — | Nextcloud password or app password |
+| `NEXTCLOUD_URL` | If enabled | — | Full URL to Nextcloud instance |
+| `NEXTCLOUD_MUSIK_PATH` | If enabled | `/Musik` | Remote path in Nextcloud to sync |
 
 ## Project Structure
 
 ```
 ytdlp-webapp/
-├── app.py              ← Flask backend
-├── .env                ← Credentials and config (never commit this)
+├── app.py                  ← Flask/Gunicorn backend
+├── .env                    ← Your config (never commit this)
+├── .env.example            ← Template for .env
 ├── .gitignore
 ├── requirements.txt
+├── ytdlp-webapp.service    ← systemd service file
 └── static/
-    └── index.html      ← Frontend UI
+    └── index.html          ← Frontend UI
 ```
 
 ## Notes
 
-- The `.env` file is excluded from version control via `.gitignore`. Never commit credentials to a repository.
-- The app is intended for local or private network use only. It runs Flask's development server — do not expose it to the public internet without a proper WSGI setup and authentication.
-- Tidal downloads require access to a working hifi-api instance with a valid Tidal session token.
-- For IPv6 issues with `nextcloudcmd` in LXC containers, disable IPv6:
-  ```bash
-  sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
-  ```
+- Never commit `.env` — it is listed in `.gitignore`.
+- The app is designed for private network use. If you expose it publicly, put it behind a reverse proxy (nginx/Caddy) with authentication.
+- One gunicorn worker is intentional — downloads run in background threads and shared state (`jobs` dict) would break across multiple workers.
