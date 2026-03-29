@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-yt-dlp + Tidal (hifi-api) Web Frontend
-Start: python3 app.py  (from the folder containing static/)
+yt-dlp + Tidal Web Frontend
+Production: gunicorn -w 1 -k gthread --threads 4 -b 0.0.0.0:5000 app:app
 """
 
+import re
 import subprocess
 import threading
 import queue
@@ -18,22 +19,46 @@ from flask import Flask, request, jsonify, Response, send_from_directory
 
 load_dotenv()
 
-NC_USER     = os.getenv("NEXTCLOUD_USER")
-NC_PASSWORD = os.getenv("NEXTCLOUD_PASSWORD")
-NC_URL      = os.getenv("NEXTCLOUD_URL")
-HIFI_URL    = os.getenv("HIFI_API_URL", "http://localhost:8000")
-MUSIK_DIR   = os.getenv("MUSIK_DIR", "/musik")
+MUSIK_DIR             = os.getenv("MUSIK_DIR", "/musik")
+HIFI_URL              = os.getenv("HIFI_API_URL", "https://api.monochrome.tf")
+YTDLP_BIN             = os.getenv("YTDLP_BIN", str(Path.home() / "yt-dlp_linux"))
+
+# Nextcloud — all optional, sync only runs if NEXTCLOUD_ENABLED=true
+NC_ENABLED            = os.getenv("NEXTCLOUD_ENABLED", "false").lower() == "true"
+NC_USER               = os.getenv("NEXTCLOUD_USER", "")
+NC_PASSWORD           = os.getenv("NEXTCLOUD_PASSWORD", "")
+NC_URL                = os.getenv("NEXTCLOUD_URL", "")
+NC_REMOTE_PATH        = os.getenv("NEXTCLOUD_MUSIK_PATH", "/Musik")
 
 app = Flask(__name__, static_folder="static")
 jobs: dict = {}
+
+AUDIO_EXTS = {".opus", ".mp3", ".flac", ".ogg", ".m4a", ".wav"}
+
+def find_existing_file(folder, title):
+    """Check if a file with the given title already exists in the folder (any audio ext)."""
+    p = Path(folder)
+    if not p.exists():
+        return None
+    title_lower = title.lower()
+    for f in p.iterdir():
+        if f.is_file() and f.suffix.lower() in AUDIO_EXTS:
+            if f.stem.lower() == title_lower:
+                return f.name
+    return None
 
 
 # ── Nextcloud sync ────────────────────────────────────────────────────────────
 
 def run_sync(q):
-    q.put({"type": "log", "text": "⟳ nextcloudcmd läuft…"})
+    if not NC_ENABLED:
+        return True
+    if not all([NC_USER, NC_PASSWORD, NC_URL]):
+        q.put({"type": "log", "text": "⚠ Nextcloud nicht konfiguriert — Sync übersprungen."})
+        return True
+    q.put({"type": "log", "text": "⟳ Nextcloud Sync läuft…"})
     cmd = ["nextcloudcmd", "--user", NC_USER, "--password", NC_PASSWORD,
-           "--path", os.getenv("NEXTCLOUD_MUSIK_PATH", "/Musik"), f"{MUSIK_DIR}/", NC_URL]
+           "--path", NC_REMOTE_PATH, f"{MUSIK_DIR}/", NC_URL]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, bufsize=1)
     keep = ["error", "warning", "upload", "download", "conflict", "finish", "aborted"]
@@ -42,15 +67,30 @@ def run_sync(q):
         if any(k in l.lower() for k in keep):
             q.put({"type": "log", "text": l})
     proc.wait()
-    return proc.returncode == 0
+    # exit code 1 = non-fatal sync warnings (bad filenames, server errors on unrelated files)
+    return proc.returncode in (0, 1)
+
+
+# ── yt-dlp helpers ────────────────────────────────────────────────────────────
+
+def get_yt_info(url):
+    """Returns (title, uploader) or (None, None)."""
+    try:
+        result = subprocess.run(
+            [YTDLP_BIN, "--print", "%(title)s\n%(uploader)s", url],
+            capture_output=True, text=True, timeout=45
+        )
+        lines = [l.strip() for l in result.stdout.strip().splitlines() if l.strip()]
+        title    = lines[0] if len(lines) > 0 else None
+        uploader = lines[1] if len(lines) > 1 else None
+        return title, uploader
+    except Exception:
+        return None, None
 
 
 # ── Tidal helpers ─────────────────────────────────────────────────────────────
 
 def _clean_query(query):
-    """Strip common YouTube title noise to get a cleaner search term."""
-    import re
-    # Remove parenthetical/bracketed noise
     noise = [
         r'\(Official.*?\)', r'\(Music.*?\)', r'\(Lyric.*?\)', r'\(Audio.*?\)',
         r'\(Video.*?\)', r'\(HD.*?\)', r'\(HQ.*?\)', r'\(prod\..*?\)',
@@ -64,7 +104,6 @@ def _clean_query(query):
 
 
 def _search_once(query):
-    """Single Tidal search, returns list of items or []."""
     try:
         r = requests.get(f"{HIFI_URL}/search/", params={"s": query}, timeout=10)
         r.raise_for_status()
@@ -74,7 +113,6 @@ def _search_once(query):
 
 
 def _best_result(items):
-    """Pick best streamable non-cover result by popularity."""
     blocklist = ["tribute", "cover", "karaoke", "made famous", "originally", "in the style"]
     candidates = [
         t for t in items
@@ -89,37 +127,21 @@ def _best_result(items):
 
 
 def tidal_search(query):
-    """Returns (id, title, artist, duration_sec) or None.
-    Tries multiple query strategies to handle obscure/non-English tracks."""
-
-    queries_to_try = []
+    """Returns (id, title, artist, duration_sec) or None."""
     cleaned = _clean_query(query)
-
-    # Strategy 1: original query as-is (e.g. "LOKIMITDERMASKE BMW")
-    queries_to_try.append(query)
-
-    # Strategy 2: cleaned query (strip YouTube noise like "(Official Video)")
-    if cleaned and cleaned.lower() != query.lower():
-        queries_to_try.append(cleaned)
-
-    # Strategy 3: if "artist - title" format, try "title artist" (Tidal prefers title first)
+    queries = [query]
+    if cleaned.lower() != query.lower():
+        queries.append(cleaned)
     if " - " in query:
         parts = query.split(" - ", 1)
         artist_part = _clean_query(parts[0]).strip()
         title_part  = _clean_query(parts[1]).strip()
-        queries_to_try.append(f"{title_part} {artist_part}")
-        # Strategy 4: title only
-        queries_to_try.append(title_part)
-        # Strategy 5: artist only (last resort for very specific artists)
-        queries_to_try.append(artist_part)
-
-    # Strategy 6: first 3 words of cleaned query
+        queries += [f"{title_part} {artist_part}", title_part, artist_part]
     words = cleaned.split()
     if len(words) > 3:
-        queries_to_try.append(" ".join(words[:3]))
+        queries.append(" ".join(words[:3]))
 
-    # Try each strategy, return first good result
-    for q in queries_to_try:
+    for q in queries:
         if not q:
             continue
         items = _search_once(q)
@@ -128,7 +150,6 @@ def tidal_search(query):
         best = _best_result(items)
         if best:
             return best["id"], best["title"], best["artist"]["name"], best.get("duration", 0)
-
     return None
 
 
@@ -137,23 +158,41 @@ def estimate_size(duration_sec, quality):
     return round(kbps * duration_sec / 8 / 1024, 1)
 
 
-def tidal_get_download_url(track_id, quality="LOSSLESS"):
-    """Returns (url, ext) or None."""
+def tidal_get_download_url(track_id, quality="LOSSLESS", q=None):
+    def log(msg):
+        if q:
+            q.put({"type": "log", "text": f"  [tidal] {msg}"})
+
     for ql in [quality, "HIGH", "LOW"]:
         try:
             r = requests.get(f"{HIFI_URL}/track/", params={"id": track_id, "quality": ql}, timeout=10)
+            if r.status_code == 403:
+                log(f"403 für {ql} — überspringe")
+                continue
             r.raise_for_status()
             data = r.json().get("data", {})
             mime_type = data.get("manifestMimeType", "")
             manifest_b64 = data.get("manifest", "")
+            if not manifest_b64:
+                log(f"Kein Manifest für {ql}")
+                continue
             padded = manifest_b64 + "=" * (-len(manifest_b64) % 4)
             manifest = json.loads(base64.b64decode(padded))
             if mime_type == "application/vnd.tidal.bts":
                 urls = manifest.get("urls", [])
                 if urls:
                     ext = "flac" if "flac" in manifest.get("codecs", "flac") else "m4a"
+                    log(f"✓ Download-URL erhalten ({ql}, {ext})")
                     return urls[0], ext
-        except Exception:
+                else:
+                    log(f"Manifest hat keine URLs ({ql})")
+            elif mime_type == "application/dash+xml":
+                log(f"MPD-Manifest nicht unterstützt ({ql}) — nächste Qualität")
+                continue
+            else:
+                log(f"Unbekannter mimeType: {mime_type}")
+        except Exception as e:
+            log(f"Fehler bei {ql}: {e}")
             continue
     return None
 
@@ -187,7 +226,10 @@ def index():
 
 @app.route("/api/config")
 def config():
-    return jsonify({"musik_dir": MUSIK_DIR})
+    return jsonify({
+        "musik_dir":        MUSIK_DIR,
+        "nextcloud_enabled": NC_ENABLED,
+    })
 
 
 @app.route("/api/files")
@@ -205,10 +247,11 @@ def list_files():
 
 @app.route("/api/preview", methods=["POST"])
 def preview():
-    data    = request.get_json(force=True)
-    mode    = (data.get("mode") or "auto").strip()
-    url     = (data.get("url") or "").strip()
-    quality = (data.get("quality") or "LOSSLESS").strip()
+    data       = request.get_json(force=True)
+    mode       = (data.get("mode") or "auto").strip()
+    url        = (data.get("url") or "").strip()
+    quality    = (data.get("quality") or "LOSSLESS").strip()
+    output_dir = (data.get("output_dir") or "").strip()
 
     def generate():
         def msg(payload):
@@ -226,12 +269,8 @@ def preview():
                 yield msg({"type": "fallback", "text": "⚠ Titel nicht abrufbar — starte yt-dlp…"})
                 return
             query = f"{uploader} {title}" if uploader else title
-            yield msg({"type": "status", "text": f"🔍 Suche auf Tidal: {query}"})
-        else:
-            pass
 
-        if mode != "auto":
-            yield msg({"type": "status", "text": f"🔍 Suche auf Tidal: {query}"})
+        yield msg({"type": "status", "text": f"🔍 Suche auf Tidal: {query}"})
         result = tidal_search(query)
         if not result:
             if mode == "auto":
@@ -242,14 +281,21 @@ def preview():
 
         track_id, track_title, artist, duration = result
         est = estimate_size(duration, quality)
+        # Check if file already exists
+        safe_name = "".join(c for c in f"{artist} - {track_title}" if c not in r'\/:*?"<>|')
+        existing = find_existing_file(output_dir, safe_name) if output_dir else None
+        if not existing and output_dir:
+            # Also check title-only match (yt-dlp fallback filenames)
+            existing = find_existing_file(output_dir, track_title)
         yield msg({
-            "type": "result",
+            "type":     "result",
             "track_id": track_id,
             "title":    track_title,
             "artist":   artist,
             "duration": f"{duration // 60}:{duration % 60:02d}",
             "size_mb":  est,
             "quality":  quality,
+            "existing": existing,
         })
 
     return Response(generate(), mimetype="text/event-stream",
@@ -287,7 +333,6 @@ def start_download():
                 q.put({"type": "log", "text": "🔍 Infos von YouTube abrufen…"})
                 title, uploader = get_yt_info(url)
                 search_query = f"{uploader} {title}" if (title and uploader) else title
-
                 if search_query:
                     q.put({"type": "log", "text": f"  Titel: {title}"})
                     if uploader:
@@ -299,7 +344,7 @@ def start_download():
                         est = estimate_size(duration, quality)
                         q.put({"type": "log", "text": f"✓ Gefunden: {artist} – {track_title}"})
                         q.put({"type": "log", "text": f"  ~{est} MB · {duration//60}:{duration%60:02d} min · {quality}"})
-                        dl = tidal_get_download_url(track_id, quality=quality)
+                        dl = tidal_get_download_url(track_id, quality=quality, q=q)
                         if dl:
                             dl_url, ext = dl
                             safe = "".join(c for c in f"{artist} - {track_title}" if c not in r'\/:*?"<>|')
@@ -323,7 +368,7 @@ def start_download():
                 est = estimate_size(duration, quality)
                 q.put({"type": "log", "text": f"✓ Gefunden: {artist} – {track_title}"})
                 q.put({"type": "log", "text": f"  ~{est} MB · {duration//60}:{duration%60:02d} min · {quality}"})
-                dl = tidal_get_download_url(track_id, quality=quality)
+                dl = tidal_get_download_url(track_id, quality=quality, q=q)
                 if not dl:
                     q.put({"type": "error", "text": "❌ Kein Download-Link von Tidal."})
                     return
@@ -334,19 +379,18 @@ def start_download():
 
             # ── YT-DLP (or fallback) ───────────────────────────────────────
             if not used_tidal:
-                yt_dlp = str(Path.home() / "yt-dlp_linux")
                 cmd = [
-                    yt_dlp, "-x",
+                    YTDLP_BIN, "-x",
                     "--audio-format", "opus",
                     "--embed-thumbnail",
                     "--convert-thumbnails", "jpg",
                     "--add-metadata",
-                    "--metadata-from-title", "%(title)s",
                     "--parse-metadata", "title:%(title)s",
                     "--parse-metadata", "uploader:%(artist)s",
                     "--output", str(expanded / "%(title)s.%(ext)s"),
                     "--no-overwrites",
                     "--ignore-errors",
+                    "--no-post-overwrites",
                     url,
                 ]
                 q.put({"type": "log", "text": "▶ yt-dlp startet…"})
@@ -356,16 +400,24 @@ def start_download():
                 for line in proc.stdout:
                     q.put({"type": "log", "text": line.rstrip()})
                 proc.wait()
-                if proc.returncode != 0:
+                # exit code 1 with --ignore-errors means non-fatal warnings, not a real failure
+                if proc.returncode not in (0, 1):
                     q.put({"type": "error", "text": f"❌ yt-dlp Fehler (Exit-Code {proc.returncode})"})
                     return
+                # Clean up leftover thumbnail files that would cause sync errors
+                for leftover in expanded.glob("*.webp"):
+                    try:
+                        leftover.unlink()
+                    except Exception:
+                        pass
 
             q.put({"type": "done", "text": "✅ Download abgeschlossen!"})
 
-            if not run_sync(q):
-                q.put({"type": "error", "text": "⚠ Sync fehlgeschlagen."})
-            else:
-                q.put({"type": "done", "text": "☁ Sync abgeschlossen!"})
+            if NC_ENABLED:
+                if not run_sync(q):
+                    q.put({"type": "error", "text": "⚠ Sync fehlgeschlagen."})
+                else:
+                    q.put({"type": "done", "text": "☁ Sync abgeschlossen!"})
 
         except Exception as e:
             q.put({"type": "error", "text": f"❌ {e}"})

@@ -1,0 +1,21 @@
+# ── Required ──────────────────────────────────────────────────────────────────
+
+# Local base directory containing your music subfolders
+MUSIK_DIR=/musik
+
+# Path to yt-dlp binary (defaults to ~/yt-dlp_linux if not set)
+YTDLP_BIN=/home/youruser/yt-dlp_linux
+
+# hifi-api instance for Tidal lossless downloads
+HIFI_API_URL=https://api.monochrome.tf
+
+
+# ── Nextcloud Sync (optional) ─────────────────────────────────────────────────
+# Set NEXTCLOUD_ENABLED=true to enable automatic sync after each download.
+# All other NEXTCLOUD_* variables are required if enabled.
+
+NEXTCLOUD_ENABLED=false
+NEXTCLOUD_USER=your_username
+NEXTCLOUD_PASSWORD=your_password_or_app_password
+NEXTCLOUD_URL=https://your-nextcloud-instance.com/nextcloud
+NEXTCLOUD_MUSIK_PATH=/Musik

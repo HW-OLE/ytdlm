@@ -369,6 +369,20 @@
 
   .preview-meta span b { color: var(--tidal); }
 
+  .preview-duplicate {
+    font-family: var(--mono);
+    font-size: .72rem;
+    color: var(--red);
+    background: var(--red-bg);
+    border: 1px solid var(--red);
+    border-radius: 6px;
+    padding: .45rem .75rem;
+    margin-bottom: .75rem;
+    display: none;
+  }
+
+  .preview-duplicate.show { display: block; }
+
   .preview-btns {
     display: flex;
     gap: .5rem;
@@ -483,6 +497,7 @@
       <span>💾 <b id="preview-size"></b> MB</span>
       <span>🎵 <b id="preview-quality"></b></span>
     </div>
+    <div class="preview-duplicate" id="preview-duplicate">⚠ Diese Datei existiert bereits: <span id="preview-existing"></span></div>
     <div class="preview-btns">
       <button class="btn-confirm" onclick="confirmDownload()">⬇ Herunterladen</button>
       <button class="btn-reject" onclick="rejectDownload()">✕ Abbrechen</button>
@@ -663,7 +678,7 @@
     const res = await fetch('/api/preview', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ url, mode: selectedMode, quality: selectedQuality })
+      body: JSON.stringify({ url, mode: selectedMode, quality: selectedQuality, output_dir: selectedDir })
     });
 
     const reader = res.body.getReader();
@@ -704,6 +719,14 @@
           document.getElementById('preview-duration').textContent = m.duration;
           document.getElementById('preview-size').textContent = m.size_mb;
           document.getElementById('preview-quality').textContent = m.quality;
+          const dupEl = document.getElementById('preview-duplicate');
+          const dupSpan = document.getElementById('preview-existing');
+          if (m.existing) {
+            dupSpan.textContent = m.existing;
+            dupEl.classList.add('show');
+          } else {
+            dupEl.classList.remove('show');
+          }
           document.getElementById('preview-card').classList.add('show');
           setStatus('', '');
         }
@@ -718,6 +741,7 @@
 
   function rejectDownload() {
     document.getElementById('preview-card').classList.remove('show');
+    document.getElementById('preview-duplicate').classList.remove('show');
     setStatus('', '');
   }
 

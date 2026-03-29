@@ -1,0 +1,15 @@
+[Unit]
+Description=yt-dlp Web Frontend
+After=network.target
+
+[Service]
+Type=simple
+User=user
+WorkingDirectory=/home/user/ytdlp-webapp
+EnvironmentFile=/home/user/ytdlp-webapp/.env
+ExecStart=/usr/local/bin/gunicorn -w 1 -k gthread --threads 4 -b 0.0.0.0:5000 --timeout 120 app:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
