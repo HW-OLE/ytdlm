@@ -19,7 +19,7 @@ import requests
 from pathlib import Path
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, Response, send_from_directory
+from flask import Flask, request, jsonify, Response, send_from_directory, send_file
 
 load_dotenv()
 
@@ -46,6 +46,7 @@ _HIFI_SERVERS = [
 ]
 
 _server_failures: dict = {}
+_server_latency: dict  = {}
 _SERVER_COOLDOWN = 300
 _server_lock = threading.Lock()
 
@@ -58,20 +59,23 @@ def _mark_failed(url):
     with _server_lock:
         _server_failures[url] = time.time()
 
-def _mark_ok(url):
+def _mark_ok(url, latency_ms=0):
     with _server_lock:
         _server_failures.pop(url, None)
+        _server_latency[url] = latency_ms
 
 def hifi_get(path, params=None, timeout=10):
     last_exc = None
     for url in _get_servers():
         try:
+            t0 = time.time()
             r = requests.get(f"{url}{path}", params=params, timeout=timeout)
+            latency = int((time.time() - t0) * 1000)
             if r.status_code in (403, 429) or r.status_code >= 500:
                 _mark_failed(url)
                 continue
             r.raise_for_status()
-            _mark_ok(url)
+            _mark_ok(url, latency)
             return r, url
         except Exception as e:
             _mark_failed(url)
@@ -85,18 +89,17 @@ AUDIO_EXTS = {".opus", ".mp3", ".flac", ".ogg", ".m4a", ".wav"}
 # ── Download queue ────────────────────────────────────────────────────────────
 
 _dl_queue: queue.Queue = queue.Queue()
-_active_job: dict = {}          # currently running job info
-_queue_items: list = []         # list of pending queue items (dicts)
+_active_job: dict = {}
+_queue_items: list = []
 _queue_lock = threading.Lock()
-_jobs: dict = {}                # job_id -> {"queue": Queue, "process": Popen}
+_jobs: dict = {}
 
 
 def _queue_worker():
-    """Background thread: processes download queue one item at a time."""
     while True:
         item = _dl_queue.get()
-        job_id   = item["job_id"]
-        q        = item["stream_queue"]
+        job_id = item["job_id"]
+        q = item["stream_queue"]
         with _queue_lock:
             global _active_job
             _active_job = item
@@ -117,37 +120,55 @@ threading.Thread(target=_queue_worker, daemon=True).start()
 
 # ── History ───────────────────────────────────────────────────────────────────
 
-def _load_history() -> list:
+def _ensure_history_file():
+    """Create history file if it doesn't exist."""
+    p = Path(HISTORY_FILE)
     try:
-        p = Path(HISTORY_FILE)
-        if p.exists():
-            return json.loads(p.read_text())
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if not p.exists():
+            p.write_text("[]", encoding="utf-8")
     except Exception:
         pass
-    return []
+
+
+def _load_history() -> list:
+    _ensure_history_file()
+    try:
+        p = Path(HISTORY_FILE)
+        text = p.read_text(encoding="utf-8").strip()
+        if not text:
+            return []
+        return json.loads(text)
+    except Exception:
+        return []
 
 
 def _save_history(entries: list):
+    _ensure_history_file()
     try:
-        Path(HISTORY_FILE).parent.mkdir(parents=True, exist_ok=True)
-        Path(HISTORY_FILE).write_text(json.dumps(entries, indent=2, ensure_ascii=False))
-    except Exception:
-        pass
+        Path(HISTORY_FILE).write_text(
+            json.dumps(entries, indent=2, ensure_ascii=False),
+            encoding="utf-8"
+        )
+    except Exception as e:
+        print(f"[history] Failed to save: {e}")
 
 
 def _add_history(title, artist, mode, folder, source="tidal", quality=None):
-    entries = _load_history()
-    entries.insert(0, {
-        "title":     title,
-        "artist":    artist,
-        "mode":      mode,
-        "source":    source,
-        "folder":    folder,
-        "quality":   quality or "",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
-    entries = entries[:500]  # keep last 500
-    _save_history(entries)
+    try:
+        entries = _load_history()
+        entries.insert(0, {
+            "title":     title,
+            "artist":    artist,
+            "mode":      mode,
+            "source":    source,
+            "folder":    folder,
+            "quality":   quality or "",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        _save_history(entries[:500])
+    except Exception as e:
+        print(f"[history] Failed to add entry: {e}")
 
 
 # ── Nextcloud sync ────────────────────────────────────────────────────────────
@@ -156,9 +177,9 @@ def run_sync(q):
     if not NC_ENABLED:
         return True
     if not all([NC_USER, NC_PASSWORD, NC_URL]):
-        q.put({"type": "log", "text": "⚠ Nextcloud nicht konfiguriert — Sync übersprungen."})
+        q.put({"type": "log", "text": "⚠ Nextcloud not configured — sync skipped."})
         return True
-    q.put({"type": "log", "text": "⟳ Nextcloud Sync läuft…"})
+    q.put({"type": "log", "text": "⟳ Nextcloud sync running…"})
     cmd = ["nextcloudcmd", "--user", NC_USER, "--password", NC_PASSWORD,
            "--path", NC_REMOTE_PATH, f"{MUSIK_DIR}/", NC_URL]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -186,7 +207,11 @@ def get_yt_info(url):
         return None, None
 
 
-def run_ytdlp(url, expanded, job_id, q):
+def is_playlist_url(url):
+    return "playlist" in url.lower() or "list=" in url
+
+
+def run_ytdlp(url, expanded, job_id, q, is_playlist=False):
     cmd = [
         YTDLP_BIN, "-x",
         "--audio-format", "opus",
@@ -199,9 +224,14 @@ def run_ytdlp(url, expanded, job_id, q):
         "--no-overwrites",
         "--ignore-errors",
         "--no-post-overwrites",
-        url,
     ]
-    q.put({"type": "log", "text": "▶ yt-dlp startet…"})
+    if is_playlist:
+        cmd += ["--yes-playlist"]
+    else:
+        cmd += ["--no-playlist"]
+    cmd.append(url)
+
+    q.put({"type": "log", "text": f"▶ yt-dlp {'(playlist)' if is_playlist else ''} starting…"})
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, text=True, bufsize=1)
     _jobs[job_id]["process"] = proc
@@ -223,8 +253,7 @@ def _clean_query(query):
         r'\(Official.*?\)', r'\(Music.*?\)', r'\(Lyric.*?\)', r'\(Audio.*?\)',
         r'\(Video.*?\)', r'\(HD.*?\)', r'\(HQ.*?\)', r'\(prod\..*?\)',
         r'\[Official.*?\]', r'\[Music.*?\]', r'\[Lyric.*?\]', r'\[Audio.*?\]',
-        r'\[prod\..*?\]', r'\[.*?Records.*?\]',
-        r'ft\..*', r'feat\..*',
+        r'\[prod\..*?\]', r'\[.*?Records.*?\]', r'ft\..*', r'feat\..*',
     ]
     for pattern in noise:
         query = re.sub(pattern, '', query, flags=re.IGNORECASE)
@@ -276,9 +305,44 @@ def tidal_search(query, limit=5):
                 "duration_sec": dur,
                 "popularity":   t.get("popularity", 0),
                 "source":       "tidal",
+                "type":         "track",
             })
-
     return results
+
+
+def tidal_album_search(query, limit=5):
+    """Search for Tidal albums."""
+    try:
+        r, _ = hifi_get("/search/", params={"s": query})
+        data = r.json().get("data", {})
+        # hifi-api /search/?s= returns tracks; use artist search to find albums
+        # We search tracks and group by album
+        items = data.get("items", [])
+        seen_albums = {}
+        for t in items:
+            alb = t.get("album", {})
+            alb_id = alb.get("id")
+            if alb_id and alb_id not in seen_albums:
+                seen_albums[alb_id] = {
+                    "id":     alb_id,
+                    "title":  alb.get("title", ""),
+                    "artist": t.get("artist", {}).get("name", ""),
+                    "cover":  alb.get("cover", ""),
+                    "type":   "album",
+                    "source": "tidal",
+                }
+            if len(seen_albums) >= limit:
+                break
+        return list(seen_albums.values())
+    except Exception:
+        return []
+
+
+def tidal_get_album_tracks(album_id):
+    """Get all tracks for a Tidal album ID via search workaround."""
+    # hifi-api doesn't have a direct /album/ endpoint, so we use /info/ on a known track
+    # and reconstruct. For now return empty — the album download will use track IDs from search.
+    return []
 
 
 def estimate_size(duration_sec, quality):
@@ -312,9 +376,7 @@ def tidal_get_metadata(track_id):
 def tidal_embed_metadata(dest_path, metadata, q):
     try:
         from mutagen.flac import FLAC, Picture
-
         audio = FLAC(str(dest_path))
-
         if metadata.get("title"):        audio["title"]       = [metadata["title"]]
         if metadata.get("artist"):       audio["artist"]      = [metadata["artist"]]
         if metadata.get("album"):        audio["album"]       = [metadata["album"]]
@@ -322,7 +384,6 @@ def tidal_embed_metadata(dest_path, metadata, q):
         if metadata.get("date"):         audio["date"]        = [metadata["date"]]
         if metadata.get("copyright"):    audio["copyright"]   = [metadata["copyright"]]
         if metadata.get("isrc"):         audio["isrc"]        = [metadata["isrc"]]
-
         if metadata.get("cover_url"):
             try:
                 r = requests.get(metadata["cover_url"], timeout=15)
@@ -339,29 +400,27 @@ def tidal_embed_metadata(dest_path, metadata, q):
                     if marker in (0xFFC0, 0xFFC2):
                         img_data.read(1)
                         h, w = struct.unpack(">HH", img_data.read(4))
-                        pic.width  = w
+                        pic.width = w
                         pic.height = h
                         break
                     img_data.read(length - 2)
                 audio.clear_pictures()
                 audio.add_picture(pic)
-                q.put({"type": "log", "text": f"  🎨 Cover eingebettet ({pic.width}×{pic.height})"})
+                q.put({"type": "log", "text": f"  🎨 Cover embedded ({pic.width}×{pic.height})"})
             except Exception as e:
-                q.put({"type": "log", "text": f"  ⚠ Cover konnte nicht geladen werden: {e}"})
-
+                q.put({"type": "log", "text": f"  ⚠ Cover failed: {e}"})
         audio.save()
-        q.put({"type": "log", "text": "  ✓ Metadaten eingebettet"})
+        q.put({"type": "log", "text": "  ✓ Metadata embedded"})
     except ImportError:
-        q.put({"type": "log", "text": "  ⚠ mutagen nicht installiert — pip install mutagen"})
+        q.put({"type": "log", "text": "  ⚠ mutagen not installed — pip install mutagen"})
     except Exception as e:
-        q.put({"type": "log", "text": f"  ⚠ Metadaten-Fehler: {e}"})
+        q.put({"type": "log", "text": f"  ⚠ Metadata error: {e}"})
 
 
 def tidal_get_download_url(track_id, quality="LOSSLESS", q=None):
     def log(msg):
         if q:
             q.put({"type": "log", "text": f"  [tidal] {msg}"})
-
     for ql in [quality, "HIGH", "LOW"]:
         for server in _get_servers():
             try:
@@ -386,17 +445,16 @@ def tidal_get_download_url(track_id, quality="LOSSLESS", q=None):
                         _mark_ok(server)
                         return urls[0], ext
                 elif mime_type == "application/dash+xml":
-                    log(f"MPD nicht unterstützt ({ql})")
+                    log(f"MPD not supported ({ql})")
                     break
             except Exception as e:
                 _mark_failed(server)
-                log(f"Fehler von {server.split('//')[1]}: {e}")
                 continue
     return None
 
 
 def tidal_download_file(url, dest_path, q, track_id=None, metadata=None):
-    q.put({"type": "log", "text": f"⬇ Tidal Download: {dest_path.name}"})
+    q.put({"type": "log", "text": f"⬇ Tidal: {dest_path.name}"})
     r = requests.get(url, stream=True, timeout=60)
     r.raise_for_status()
     total = int(r.headers.get("content-length", 0))
@@ -413,16 +471,16 @@ def tidal_download_file(url, dest_path, q, track_id=None, metadata=None):
                         last_pct = pct
                         q.put({"type": "log", "text":
                                f"  {pct}% ({downloaded // 1024} / {total // 1024} KB)"})
-    q.put({"type": "log", "text": "✓ Tidal-Datei gespeichert."})
+    q.put({"type": "log", "text": "✓ File saved."})
     if dest_path.suffix.lower() == ".flac":
         if metadata is None and track_id:
-            q.put({"type": "log", "text": "  🔍 Metadaten abrufen…"})
+            q.put({"type": "log", "text": "  🔍 Fetching metadata…"})
             metadata = tidal_get_metadata(track_id)
         if metadata:
             tidal_embed_metadata(dest_path, metadata, q)
 
 
-# ── Core download executor ────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def find_existing_file(folder, title):
     p = Path(folder)
@@ -436,8 +494,9 @@ def find_existing_file(folder, title):
     return None
 
 
+# ── Core download executor ────────────────────────────────────────────────────
+
 def _execute_download(item, job_id, q):
-    """Core download logic, called by queue worker."""
     mode         = item.get("mode", "ytdlp")
     url          = item.get("url", "")
     output_dir   = item.get("output_dir", "")
@@ -445,14 +504,36 @@ def _execute_download(item, job_id, q):
     track_id     = item.get("track_id")
     track_title  = item.get("track_title", "")
     track_artist = item.get("track_artist", "")
+    is_playlist  = item.get("is_playlist", False)
+    track_ids    = item.get("track_ids", [])  # for album downloads
 
     expanded = Path(output_dir)
     expanded.mkdir(parents=True, exist_ok=True)
-
     used_tidal = False
 
+    # ── Tidal album: download multiple tracks ─────────────────────────────────
+    if track_ids:
+        q.put({"type": "log", "text": f"⬇ Downloading album ({len(track_ids)} tracks)…"})
+        for i, tid in enumerate(track_ids):
+            q.put({"type": "log", "text": f"  Track {i+1}/{len(track_ids)} (ID {tid})"})
+            meta = tidal_get_metadata(tid)
+            if not meta:
+                q.put({"type": "log", "text": f"  ⚠ Metadata not found for {tid}, skipping"})
+                continue
+            dl = tidal_get_download_url(tid, quality=quality, q=q)
+            if dl:
+                dl_url, ext = dl
+                safe = "".join(c for c in f"{meta['tracknumber'].zfill(2)} - {meta['title']}"
+                               if c not in r'\/:*?"<>|')
+                tidal_download_file(dl_url, expanded / f"{safe}.{ext}", q,
+                                    track_id=tid, metadata=meta)
+                _add_history(meta["title"], meta["artist"], mode, output_dir, "tidal", quality)
+            else:
+                q.put({"type": "log", "text": f"  ⚠ No download link for track {tid}"})
+        used_tidal = True
+
     # ── Selected Tidal track ──────────────────────────────────────────────────
-    if track_id:
+    elif track_id:
         q.put({"type": "log", "text": f"⬇ Tidal: {track_artist} – {track_title}"})
         dl = tidal_get_download_url(track_id, quality=quality, q=q)
         if dl:
@@ -463,15 +544,15 @@ def _execute_download(item, job_id, q):
             _add_history(track_title, track_artist, mode, output_dir, "tidal", quality)
             used_tidal = True
         else:
-            q.put({"type": "log", "text": "⚠ Kein Tidal-Link — falle auf yt-dlp zurück."})
+            q.put({"type": "log", "text": "⚠ No Tidal link — falling back to yt-dlp."})
 
-    # ── Auto mode: try Tidal first ────────────────────────────────────────────
+    # ── Auto mode ─────────────────────────────────────────────────────────────
     elif mode == "auto" and url:
-        q.put({"type": "log", "text": "🔍 Infos von YouTube abrufen…"})
+        q.put({"type": "log", "text": "🔍 Fetching YouTube info…"})
         title, uploader = get_yt_info(url)
         search_query = f"{uploader} {title}" if (title and uploader) else title
         if search_query:
-            q.put({"type": "log", "text": f"  Titel: {title}, Interpret: {uploader}"})
+            q.put({"type": "log", "text": f"  Title: {title}, Artist: {uploader}"})
             results = tidal_search(search_query, limit=1)
             if results:
                 best = results[0]
@@ -487,30 +568,29 @@ def _execute_download(item, job_id, q):
                                  "tidal", quality)
                     used_tidal = True
                 else:
-                    q.put({"type": "log", "text": "⚠ Kein Download-Link — falle auf yt-dlp zurück."})
+                    q.put({"type": "log", "text": "⚠ No download link — falling back to yt-dlp."})
             else:
-                q.put({"type": "log", "text": "⚠ Nicht auf Tidal — falle auf yt-dlp zurück."})
+                q.put({"type": "log", "text": "⚠ Not found on Tidal — falling back to yt-dlp."})
         else:
-            q.put({"type": "log", "text": "⚠ Titel nicht abrufbar — falle auf yt-dlp zurück."})
+            q.put({"type": "log", "text": "⚠ Could not fetch title — falling back to yt-dlp."})
 
     # ── yt-dlp (direct or fallback) ───────────────────────────────────────────
     if not used_tidal:
         if not url:
-            q.put({"type": "error", "text": "❌ Keine URL angegeben."})
+            q.put({"type": "error", "text": "❌ No URL provided."})
             return
-        ok = run_ytdlp(url, expanded, job_id, q)
+        ok = run_ytdlp(url, expanded, job_id, q, is_playlist=is_playlist)
         if not ok:
-            q.put({"type": "error", "text": "❌ yt-dlp Fehler."})
+            q.put({"type": "error", "text": "❌ yt-dlp error."})
             return
         _add_history(url, "", mode, output_dir, "ytdlp", None)
 
-    q.put({"type": "done", "text": "✅ Download abgeschlossen!"})
-
+    q.put({"type": "done", "text": "✅ Download complete!"})
     if NC_ENABLED:
         if not run_sync(q):
-            q.put({"type": "error", "text": "⚠ Sync fehlgeschlagen."})
+            q.put({"type": "error", "text": "⚠ Sync failed."})
         else:
-            q.put({"type": "done", "text": "☁ Sync abgeschlossen!"})
+            q.put({"type": "done", "text": "☁ Sync complete!"})
 
 
 # ── Flask routes ──────────────────────────────────────────────────────────────
@@ -520,17 +600,42 @@ def index():
     return send_from_directory("static", "index.html")
 
 
+@app.route("/manifest.json")
+def manifest():
+    return send_from_directory("static", "manifest.json")
+
+
+@app.route("/sw.js")
+def service_worker():
+    return send_from_directory("static", "sw.js")
+
+
 @app.route("/api/config")
 def config():
     now = time.time()
+    _ensure_history_file()
     return jsonify({
         "musik_dir":         MUSIK_DIR,
         "nextcloud_enabled": NC_ENABLED,
         "servers": [
-            {"url": u, "healthy": (now - _server_failures.get(u, 0)) > _SERVER_COOLDOWN}
+            {
+                "url":     u,
+                "healthy": (now - _server_failures.get(u, 0)) > _SERVER_COOLDOWN,
+                "latency": _server_latency.get(u, None),
+            }
             for u in _HIFI_SERVERS
         ],
     })
+
+
+@app.route("/api/folders")
+def list_folders():
+    p = Path(MUSIK_DIR)
+    if not p.exists():
+        return jsonify({"folders": []})
+    folders = sorted(f.name for f in p.iterdir()
+                     if f.is_dir() and not f.name.startswith('.'))
+    return jsonify({"folders": folders})
 
 
 @app.route("/api/files")
@@ -546,14 +651,21 @@ def list_files():
     return jsonify({"files": files})
 
 
-@app.route("/api/folders")
-def list_folders():
-    """Return all subdirectories of MUSIK_DIR."""
-    p = Path(MUSIK_DIR)
-    if not p.exists():
-        return jsonify({"folders": []})
-    folders = sorted(f.name for f in p.iterdir() if f.is_dir() and not f.name.startswith('.'))
-    return jsonify({"folders": folders})
+@app.route("/api/play")
+def play_file():
+    """Stream an audio file for browser preview."""
+    path = request.args.get("path", "").strip()
+    if not path:
+        return jsonify({"error": "No path"}), 400
+    p = Path(path)
+    if not p.exists() or not p.is_file():
+        return jsonify({"error": "File not found"}), 404
+    # Security: must be within MUSIK_DIR
+    try:
+        p.resolve().relative_to(Path(MUSIK_DIR).resolve())
+    except ValueError:
+        return jsonify({"error": "Access denied"}), 403
+    return send_file(str(p), conditional=True)
 
 
 @app.route("/api/search", methods=["POST"])
@@ -563,6 +675,7 @@ def search():
     query      = (data.get("query") or "").strip()
     quality    = (data.get("quality") or "LOSSLESS").strip()
     output_dir = (data.get("output_dir") or "").strip()
+    search_type = (data.get("search_type") or "track").strip()  # "track" or "album"
 
     def generate():
         def msg(payload):
@@ -575,51 +688,82 @@ def search():
         search_query = query
 
         if mode == "auto":
-            yield msg({"type": "status", "text": "🔍 Infos von YouTube abrufen…"})
+            yield msg({"type": "status", "text": "🔍 Fetching YouTube info…"})
             title, uploader = get_yt_info(query)
             if not title:
-                yield msg({"type": "fallback", "text": "⚠ Titel nicht abrufbar — direkt zur Queue."})
+                yield msg({"type": "fallback", "text": "⚠ Could not fetch title — adding to queue."})
                 return
             search_query = f"{uploader} {title}" if uploader else title
 
-        yield msg({"type": "status", "text": f"🔍 Suche auf Tidal: {search_query}"})
-        results = tidal_search(search_query, limit=5)
+        yield msg({"type": "status", "text": f"🔍 Searching Tidal ({search_type}): {search_query}"})
+
+        if search_type == "album":
+            results = tidal_album_search(search_query, limit=5)
+        else:
+            results = tidal_search(search_query, limit=5)
 
         if not results:
             if mode == "auto":
-                yield msg({"type": "fallback", "text": "⚠ Nicht auf Tidal — direkt zur Queue."})
+                yield msg({"type": "fallback", "text": "⚠ Not found on Tidal — adding to queue."})
             else:
-                yield msg({"type": "error", "text": "❌ Keine Ergebnisse auf Tidal."})
+                yield msg({"type": "error", "text": "❌ No results on Tidal."})
             return
 
-        for track in results:
-            track["size_mb"] = estimate_size(track["duration_sec"], quality)
-            safe = "".join(c for c in f"{track['artist']} - {track['title']}"
-                           if c not in r'\/:*?"<>|')
-            existing = find_existing_file(output_dir, safe) if output_dir else None
-            if not existing and output_dir:
-                existing = find_existing_file(output_dir, track["title"])
-            track["existing"] = existing
+        if search_type == "track":
+            for track in results:
+                track["size_mb"] = estimate_size(track["duration_sec"], quality)
+                safe = "".join(c for c in f"{track['artist']} - {track['title']}"
+                               if c not in r'\/:*?"<>|')
+                existing = find_existing_file(output_dir, safe) if output_dir else None
+                if not existing and output_dir:
+                    existing = find_existing_file(output_dir, track["title"])
+                track["existing"] = existing
 
-        yield msg({"type": "results", "tracks": results, "quality": quality})
+        yield msg({"type": "results", "tracks": results, "quality": quality,
+                   "search_type": search_type})
 
     return Response(generate(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@app.route("/api/album-tracks/<int:album_id>")
+def get_album_tracks(album_id):
+    """Get tracks for a Tidal album by searching for the album ID."""
+    try:
+        # Search for tracks from this album using the recommendations endpoint
+        r, _ = hifi_get("/recommendations/", params={"id": album_id})
+        items = r.json().get("data", {}).get("items", [])
+        tracks = []
+        for item in items:
+            t = item.get("track", item)
+            if t.get("album", {}).get("id") == album_id:
+                dur = t.get("duration", 0)
+                tracks.append({
+                    "id":           t["id"],
+                    "title":        t["title"],
+                    "artist":       t.get("artist", {}).get("name", ""),
+                    "tracknumber":  t.get("trackNumber", 0),
+                    "duration":     f"{dur // 60}:{dur % 60:02d}",
+                    "duration_sec": dur,
+                })
+        return jsonify({"tracks": sorted(tracks, key=lambda x: x["tracknumber"])})
+    except Exception as e:
+        return jsonify({"tracks": [], "error": str(e)})
+
+
 # ── Queue routes ──────────────────────────────────────────────────────────────
 
-@app.route("/api/queue", methods=["GET"])
+@app.route("/api/queue")
 def get_queue():
     with _queue_lock:
-        active = dict(_active_job) if _active_job else None
+        active  = dict(_active_job) if _active_job else None
         pending = list(_queue_items)
     return jsonify({"active": active, "pending": pending})
 
 
 @app.route("/api/queue/add", methods=["POST"])
 def queue_add():
-    data = request.get_json(force=True)
+    data   = request.get_json(force=True)
     job_id = str(uuid.uuid4())[:8]
     sq: queue.Queue = queue.Queue()
 
@@ -630,15 +774,17 @@ def queue_add():
         "output_dir":   (data.get("output_dir") or "").strip(),
         "quality":      (data.get("quality") or "LOSSLESS").strip(),
         "track_id":     data.get("track_id"),
+        "track_ids":    data.get("track_ids", []),
         "track_title":  data.get("track_title", ""),
         "track_artist": data.get("track_artist", ""),
+        "is_playlist":  data.get("is_playlist", False),
         "stream_queue": sq,
         "label":        data.get("label", data.get("url", "Download")),
         "status":       "queued",
     }
 
     if not item["output_dir"]:
-        return jsonify({"error": "Kein Zielordner angegeben."}), 400
+        return jsonify({"error": "No output directory specified."}), 400
 
     _jobs[job_id] = {"queue": sq, "process": None}
     with _queue_lock:
@@ -651,7 +797,7 @@ def queue_add():
 def stream(job_id):
     job = _jobs.get(job_id)
     if not job:
-        return jsonify({"error": "Job nicht gefunden."}), 404
+        return jsonify({"error": "Job not found."}), 404
     sq = job["queue"]
 
     def generate():
@@ -673,19 +819,17 @@ def cancel(job_id):
     if job and job.get("process"):
         job["process"].terminate()
         return jsonify({"status": "cancelled"})
-    # Remove from pending queue if not yet started
     with _queue_lock:
         before = len(_queue_items)
         _queue_items[:] = [i for i in _queue_items if i["job_id"] != job_id]
-        removed = len(_queue_items) < before
-    if removed:
-        return jsonify({"status": "removed from queue"})
-    return jsonify({"error": "Job nicht gefunden."}), 404
+        if len(_queue_items) < before:
+            return jsonify({"status": "removed from queue"})
+    return jsonify({"error": "Job not found."}), 404
 
 
 # ── History routes ────────────────────────────────────────────────────────────
 
-@app.route("/api/history", methods=["GET"])
+@app.route("/api/history")
 def get_history():
     return jsonify({"entries": _load_history()})
 
@@ -696,7 +840,7 @@ def clear_history():
     return jsonify({"status": "cleared"})
 
 
-# ── yt-dlp update route ───────────────────────────────────────────────────────
+# ── yt-dlp update ─────────────────────────────────────────────────────────────
 
 @app.route("/api/update-ytdlp", methods=["POST"])
 def update_ytdlp():
@@ -704,19 +848,18 @@ def update_ytdlp():
         def msg(payload):
             return "data: " + json.dumps(payload) + "\n\n"
         try:
-            yield msg({"type": "log", "text": f"⟳ Starte yt-dlp Update: {YTDLP_BIN}"})
+            yield msg({"type": "log", "text": f"⟳ Updating yt-dlp: {YTDLP_BIN}"})
             proc = subprocess.Popen(
                 [YTDLP_BIN, "-U"],
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
             )
             for line in proc.stdout:
                 yield msg({"type": "log", "text": line.rstrip()})
             proc.wait()
             if proc.returncode == 0:
-                yield msg({"type": "done", "text": "✅ yt-dlp ist aktuell."})
+                yield msg({"type": "done", "text": "✅ yt-dlp is up to date."})
             else:
-                yield msg({"type": "error", "text": f"⚠ Update beendet mit Code {proc.returncode}"})
+                yield msg({"type": "error", "text": f"⚠ Update exited with code {proc.returncode}"})
         except Exception as e:
             yield msg({"type": "error", "text": f"❌ {e}"})
         finally:
@@ -727,5 +870,8 @@ def update_ytdlp():
 
 
 if __name__ == "__main__":
-    print("🎵  http://localhost:5000")
+    _ensure_history_file()
+    print(f"🎵  http://localhost:5000")
+    print(f"📁  Music dir: {MUSIK_DIR}")
+    print(f"📋  History:   {HISTORY_FILE}")
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

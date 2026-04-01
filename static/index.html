@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>yt-dlp Downloader</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1a1a2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="yt-dlp">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap');
 
@@ -25,6 +29,22 @@
     --sans: 'IBM Plex Sans', sans-serif;
   }
 
+  [data-theme="dark"] {
+    --bg:           #0e0e14;
+    --surface:      #16161f;
+    --border:       #2a2a38;
+    --accent:       #7b8cde;
+    --accent-light: #1e2040;
+    --tidal:        #00a0a8;
+    --tidal-light:  #0a2528;
+    --green:        #4ade80;
+    --green-bg:     #0a2318;
+    --red:          #f87171;
+    --red-bg:       #2a1010;
+    --text:         #e8e8f0;
+    --muted:        #666680;
+  }
+
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
@@ -36,49 +56,55 @@
     align-items: flex-start;
     justify-content: center;
     padding: 3rem 1rem 4rem;
+    transition: background .2s, color .2s;
   }
 
-  .wrap { width: 100%; max-width: 960px; }
+  .wrap { width: 100%; max-width: 980px; }
 
-  header { margin-bottom: 2rem; display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; }
+  /* Header */
+  header { margin-bottom: 2rem; display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
   .header-left { border-left: 3px solid var(--accent); padding-left: 1rem; }
   h1 { font-family: var(--mono); font-size: 1.4rem; font-weight: 600; letter-spacing: -.02em; color: var(--accent); }
-  .sub { font-family: var(--mono); font-size: .72rem; color: var(--muted); margin-top: .25rem; }
+  .sub { font-family: var(--mono); font-size: .7rem; color: var(--muted); margin-top: .25rem; }
+  .header-btns { display: flex; gap: .5rem; flex-wrap: wrap; }
 
-  .btn-update {
-    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-    padding: .45rem .8rem; font-family: var(--mono); font-size: .72rem; font-weight: 600;
+  .icon-btn {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: .4rem .7rem; font-family: var(--mono); font-size: .7rem; font-weight: 600;
     color: var(--muted); cursor: pointer; transition: all .15s; white-space: nowrap;
   }
-  .btn-update:hover { border-color: var(--accent); color: var(--text); }
+  .icon-btn:hover { border-color: var(--accent); color: var(--text); }
 
-  .layout { display: grid; grid-template-columns: 1fr 320px; gap: 1rem; align-items: start; }
+  /* Layout */
+  .layout { display: grid; grid-template-columns: 1fr 300px; gap: 1rem; align-items: start; }
   @media (max-width: 720px) { .layout { grid-template-columns: 1fr; } }
 
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem; transition: border-color .2s; }
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem; transition: border-color .2s, background .2s; }
   .card.tidal-mode { border-color: var(--tidal); }
 
-  .field { margin-bottom: 1.1rem; }
+  .field { margin-bottom: 1rem; }
   .field:last-child { margin-bottom: 0; }
 
   label {
-    display: block; font-family: var(--mono); font-size: .65rem; font-weight: 600;
-    letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: .45rem;
+    display: block; font-family: var(--mono); font-size: .63rem; font-weight: 600;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: .4rem;
   }
 
-  input[type="url"], input[type="text"], input[type="search"] {
-    width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: .65rem .875rem;
-    font-family: var(--mono); font-size: .85rem; color: var(--text); background: var(--bg);
+  input[type="url"], input[type="text"], input[type="search"], textarea {
+    width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: .62rem .875rem;
+    font-family: var(--mono); font-size: .83rem; color: var(--text); background: var(--bg);
     outline: none; transition: border-color .15s, box-shadow .15s;
+    resize: vertical;
   }
-  input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); }
-  input::placeholder { color: var(--muted); }
+  input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); }
+  input::placeholder, textarea::placeholder { color: var(--muted); }
 
   /* Mode */
-  .mode-row { display: flex; gap: .4rem; margin-bottom: 1.1rem; }
+  .mode-row { display: flex; gap: .35rem; margin-bottom: 1rem; }
   .mode-btn {
-    flex: 1; padding: .5rem .4rem; background: var(--bg); border: 1px solid var(--border);
-    border-radius: 6px; font-family: var(--mono); font-size: .72rem; font-weight: 600;
+    flex: 1; padding: .48rem .3rem; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; font-family: var(--mono); font-size: .7rem; font-weight: 600;
     color: var(--muted); cursor: pointer; text-align: center; transition: all .15s;
   }
   .mode-btn:hover { border-color: var(--accent); color: var(--text); }
@@ -87,40 +113,62 @@
   .mode-btn.active[data-mode="ytdlp"] { border-color: var(--red);    background: var(--red);    color: #fff; }
 
   .mode-desc {
-    font-family: var(--mono); font-size: .65rem; color: var(--muted); margin-bottom: 1.1rem;
-    padding: .45rem .7rem; background: var(--bg); border-radius: 6px;
+    font-family: var(--mono); font-size: .63rem; color: var(--muted); margin-bottom: 1rem;
+    padding: .4rem .65rem; background: var(--bg); border-radius: 6px;
     border-left: 3px solid var(--border); transition: all .2s;
   }
   .mode-desc.tidal-mode { border-color: var(--tidal); color: var(--tidal); background: var(--tidal-light); }
 
+  /* Search type toggle */
+  .search-type-row { display: flex; gap: .35rem; margin-bottom: 1rem; }
+  .stype-btn {
+    flex: 1; padding: .35rem .3rem; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 5px; font-family: var(--mono); font-size: .67rem; font-weight: 600;
+    color: var(--muted); cursor: pointer; text-align: center; transition: all .15s;
+  }
+  .stype-btn:hover { border-color: var(--tidal); color: var(--text); }
+  .stype-btn.active { border-color: var(--tidal); background: var(--tidal); color: #fff; }
+  .search-type-wrap { display: none; margin-bottom: 1rem; }
+  .search-type-wrap.visible { display: block; }
+
   /* Quality */
-  .quality-wrap { display: none; margin-bottom: 1.1rem; }
+  .quality-wrap { display: none; margin-bottom: 1rem; }
   .quality-wrap.visible { display: block; }
   .quality-row { display: flex; gap: .35rem; }
   .quality-btn {
-    flex: 1; padding: .38rem .3rem; background: var(--bg); border: 1px solid var(--border);
-    border-radius: 6px; font-family: var(--mono); font-size: .67rem; font-weight: 600;
+    flex: 1; padding: .35rem .25rem; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 5px; font-family: var(--mono); font-size: .65rem; font-weight: 600;
     color: var(--muted); cursor: pointer; text-align: center; transition: all .15s;
   }
   .quality-btn:hover { border-color: var(--tidal); color: var(--text); }
   .quality-btn.active { border-color: var(--tidal); background: var(--tidal); color: #fff; }
 
   /* Folder grid */
-  .dir-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .4rem; min-height: 38px; }
+  .dir-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .35rem; min-height: 36px; }
   .dir-btn {
-    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-    padding: .45rem .5rem; font-family: var(--mono); font-size: .72rem; color: var(--muted);
-    cursor: pointer; text-align: center; transition: all .15s;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
+    padding: .4rem .4rem; font-family: var(--mono); font-size: .68rem; color: var(--muted);
+    cursor: pointer; text-align: center; transition: all .15s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .dir-btn:hover { border-color: var(--accent); color: var(--text); }
   .dir-btn.active { border-color: var(--accent); background: var(--accent); color: #fff; }
-  .dir-loading { font-family: var(--mono); font-size: .7rem; color: var(--muted); padding: .5rem 0; font-style: italic; }
+  .dir-loading { font-family: var(--mono); font-size: .68rem; color: var(--muted); padding: .4rem 0; font-style: italic; }
+
+  /* Playlist toggle */
+  .playlist-row { display: flex; align-items: center; gap: .6rem; margin-top: .6rem; font-family: var(--mono); font-size: .7rem; color: var(--muted); }
+  .playlist-toggle-wrap { display: none; }
+  .playlist-toggle-wrap.visible { display: block; }
+  .toggle { position: relative; width: 32px; height: 18px; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider { position: absolute; inset: 0; background: var(--border); border-radius: 18px; cursor: pointer; transition: background .2s; }
+  .toggle-slider::before { content: ''; position: absolute; width: 12px; height: 12px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform .2s; }
+  .toggle input:checked + .toggle-slider { background: var(--accent); }
+  .toggle input:checked + .toggle-slider::before { transform: translateX(14px); }
 
   button.primary {
-    width: 100%; margin-top: 1.25rem; padding: .75rem 1rem; background: var(--accent);
+    width: 100%; margin-top: 1.1rem; padding: .7rem 1rem; background: var(--accent);
     color: #fff; border: none; border-radius: 6px; font-family: var(--mono);
-    font-size: .85rem; font-weight: 600; cursor: pointer; letter-spacing: .02em;
+    font-size: .83rem; font-weight: 600; cursor: pointer; letter-spacing: .02em;
     transition: background .2s, opacity .15s, transform .1s;
   }
   button.primary.tidal-mode { background: var(--tidal); }
@@ -133,74 +181,113 @@
   .results-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 1rem; display: none; }
   .results-panel.show { display: block; }
   .results-header {
-    padding: .55rem 1rem; font-family: var(--mono); font-size: .65rem; font-weight: 600;
+    padding: .5rem 1rem; font-family: var(--mono); font-size: .63rem; font-weight: 600;
     letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
     border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;
   }
   .results-close { background: transparent; border: none; color: var(--muted); cursor: pointer; font-size: .85rem; }
   .result-item {
-    display: flex; align-items: center; gap: .75rem; padding: .7rem 1rem;
+    display: flex; align-items: center; gap: .7rem; padding: .65rem 1rem;
     border-bottom: 1px solid var(--border); cursor: pointer; transition: background .12s;
   }
   .result-item:last-child { border-bottom: none; }
   .result-item:hover { background: var(--bg); }
+  .result-badge { font-family: var(--mono); font-size: .58rem; font-weight: 600; padding: .1rem .35rem; border-radius: 3px; text-transform: uppercase; flex-shrink: 0; background: var(--tidal-light); color: var(--tidal); }
   .result-info { flex: 1; min-width: 0; }
-  .result-title { font-family: var(--sans); font-size: .85rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .result-artist { font-family: var(--mono); font-size: .7rem; color: var(--muted); margin-top: .08rem; }
-  .result-duplicate { font-family: var(--mono); font-size: .6rem; color: var(--red); margin-top: .12rem; }
-  .result-meta { font-family: var(--mono); font-size: .68rem; color: var(--muted); text-align: right; flex-shrink: 0; }
+  .result-title { font-family: var(--sans); font-size: .83rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .result-artist { font-family: var(--mono); font-size: .68rem; color: var(--muted); margin-top: .06rem; }
+  .result-duplicate { font-family: var(--mono); font-size: .58rem; color: var(--red); margin-top: .1rem; }
+  .result-meta { font-family: var(--mono); font-size: .65rem; color: var(--muted); text-align: right; flex-shrink: 0; }
   .result-meta .size { color: var(--text); font-weight: 600; }
 
   /* Side panels */
-  .side-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 1rem; }
+  .side-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 1rem; transition: background .2s; }
   .side-header {
-    padding: .55rem .875rem; font-family: var(--mono); font-size: .65rem; font-weight: 600;
+    padding: .5rem .875rem; font-family: var(--mono); font-size: .63rem; font-weight: 600;
     letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
     border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;
   }
-  .side-body { max-height: 260px; overflow-y: auto; }
+  .side-body { max-height: 240px; overflow-y: auto; }
   .side-body::-webkit-scrollbar { width: 4px; }
   .side-body::-webkit-scrollbar-track { background: transparent; }
   .side-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-  .track-count { background: var(--border); border-radius: 10px; padding: .1rem .4rem; font-size: .6rem; }
-  .track-item { padding: .28rem .75rem; font-family: var(--mono); font-size: .7rem; color: var(--text); line-height: 1.4; word-break: break-word; }
-  .track-empty, .track-loading { padding: .75rem; font-family: var(--mono); font-size: .7rem; color: var(--muted); text-align: center; font-style: italic; }
+  .track-count { background: var(--border); border-radius: 10px; padding: .08rem .38rem; font-size: .58rem; }
+
+  /* Track list with preview */
+  .track-item {
+    display: flex; align-items: center; gap: .5rem; padding: .25rem .5rem .25rem .75rem;
+    font-family: var(--mono); font-size: .68rem; color: var(--text); line-height: 1.4;
+    border-bottom: 1px solid transparent; transition: background .1s;
+  }
+  .track-item:hover { background: var(--bg); }
+  .track-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: break-word; }
+  .play-btn {
+    background: transparent; border: none; color: var(--muted); cursor: pointer;
+    font-size: .75rem; flex-shrink: 0; padding: .1rem .2rem; transition: color .15s;
+  }
+  .play-btn:hover { color: var(--tidal); }
+  .play-btn.playing { color: var(--tidal); }
+  .track-empty, .track-loading { padding: .75rem; font-family: var(--mono); font-size: .68rem; color: var(--muted); text-align: center; font-style: italic; }
+
+  /* Audio player bar */
+  .player-bar {
+    display: none; align-items: center; gap: .6rem; padding: .5rem .75rem;
+    border-top: 1px solid var(--border); background: var(--bg);
+    font-family: var(--mono); font-size: .65rem; color: var(--muted);
+  }
+  .player-bar.show { display: flex; }
+  .player-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .player-stop { background: transparent; border: none; color: var(--muted); cursor: pointer; font-size: .8rem; flex-shrink: 0; }
+  .player-stop:hover { color: var(--red); }
+  audio { display: none; }
 
   /* Queue */
   .queue-item {
-    display: flex; align-items: center; gap: .6rem; padding: .6rem .875rem;
-    border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: .72rem;
+    display: flex; align-items: center; gap: .55rem; padding: .55rem .875rem;
+    border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: .7rem;
   }
   .queue-item:last-child { border-bottom: none; }
   .queue-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
-  .queue-badge { font-size: .6rem; font-weight: 600; padding: .12rem .4rem; border-radius: 4px; flex-shrink: 0; text-transform: uppercase; }
+  .queue-badge { font-size: .58rem; font-weight: 600; padding: .1rem .35rem; border-radius: 3px; flex-shrink: 0; text-transform: uppercase; }
   .queue-badge.active  { background: var(--tidal-light); color: var(--tidal); }
   .queue-badge.queued  { background: var(--accent-light); color: var(--accent); }
-  .queue-remove { background: transparent; border: none; color: var(--muted); cursor: pointer; font-size: .75rem; flex-shrink: 0; padding: 0 .2rem; }
+  .queue-remove { background: transparent; border: none; color: var(--muted); cursor: pointer; font-size: .72rem; flex-shrink: 0; padding: 0 .15rem; }
   .queue-remove:hover { color: var(--red); }
-  .queue-empty { padding: .75rem; font-family: var(--mono); font-size: .7rem; color: var(--muted); text-align: center; font-style: italic; }
+  .queue-empty { padding: .75rem; font-family: var(--mono); font-size: .68rem; color: var(--muted); text-align: center; font-style: italic; }
 
   /* History */
-  .history-item { padding: .55rem .875rem; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: .7rem; }
+  .history-item { padding: .5rem .875rem; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: .68rem; }
   .history-item:last-child { border-bottom: none; }
   .history-title { color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .history-meta { color: var(--muted); font-size: .62rem; margin-top: .1rem; }
-  .history-empty { padding: .75rem; font-family: var(--mono); font-size: .7rem; color: var(--muted); text-align: center; font-style: italic; }
+  .history-meta { color: var(--muted); font-size: .6rem; margin-top: .08rem; }
+  .history-empty { padding: .75rem; font-family: var(--mono); font-size: .68rem; color: var(--muted); text-align: center; font-style: italic; }
+
+  /* Server health */
+  .server-list { padding: .4rem 0; }
+  .server-item {
+    display: flex; align-items: center; gap: .5rem; padding: .3rem .875rem;
+    font-family: var(--mono); font-size: .63rem;
+  }
+  .server-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .server-dot.healthy { background: var(--green); }
+  .server-dot.failed  { background: var(--red); }
+  .server-name { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .server-latency { color: var(--muted); font-size: .58rem; flex-shrink: 0; }
 
   /* Terminal */
   .terminal { background: var(--accent); border-radius: 8px; overflow: hidden; display: none; margin-bottom: 1rem; }
   .terminal.show { display: block; }
-  .t-bar { background: rgba(255,255,255,.07); padding: .5rem 1rem; display: flex; align-items: center; gap: .75rem; }
-  .t-title { font-family: var(--mono); font-size: .68rem; color: rgba(255,255,255,.45); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .t-bar { background: rgba(255,255,255,.07); padding: .48rem 1rem; display: flex; align-items: center; gap: .7rem; }
+  .t-title { font-family: var(--mono); font-size: .65rem; color: rgba(255,255,255,.45); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .btn-cancel {
     background: transparent; border: 1px solid rgba(255,255,255,.25); color: rgba(255,255,255,.6);
-    border-radius: 4px; padding: .18rem .5rem; font-family: var(--mono); font-size: .65rem; cursor: pointer; transition: all .15s; flex-shrink: 0;
+    border-radius: 4px; padding: .16rem .48rem; font-family: var(--mono); font-size: .63rem; cursor: pointer; transition: all .15s; flex-shrink: 0;
   }
   .btn-cancel:hover { border-color: rgba(255,100,100,.6); color: rgba(255,150,150,1); }
   .t-body {
-    padding: .75rem 1rem 1rem; max-height: 280px; overflow-y: auto; font-family: var(--mono);
-    font-size: .74rem; line-height: 1.75; color: rgba(255,255,255,.55); white-space: pre-wrap; word-break: break-all;
+    padding: .7rem 1rem .9rem; max-height: 260px; overflow-y: auto; font-family: var(--mono);
+    font-size: .72rem; line-height: 1.75; color: rgba(255,255,255,.55); white-space: pre-wrap; word-break: break-all;
   }
   .t-body::-webkit-scrollbar { width: 4px; }
   .t-body::-webkit-scrollbar-track { background: transparent; }
@@ -212,26 +299,31 @@
   .ll.inf { color: #93c5fd; }
 
   /* Status */
-  .status { font-family: var(--mono); font-size: .75rem; padding: .55rem .875rem; border-radius: 6px; display: none; margin-bottom: 1rem; }
+  .status { font-family: var(--mono); font-size: .73rem; padding: .52rem .875rem; border-radius: 6px; display: none; margin-bottom: 1rem; }
   .status.show    { display: block; }
   .status.running { background: var(--accent-light); color: var(--accent); }
   .status.done    { background: var(--green-bg);     color: var(--green); }
   .status.error   { background: var(--red-bg);       color: var(--red); }
 
-  .link-btn { background: none; border: none; color: var(--muted); font-family: var(--mono); font-size: .62rem; cursor: pointer; text-decoration: underline; padding: 0; }
+  .link-btn { background: none; border: none; color: var(--muted); font-family: var(--mono); font-size: .6rem; cursor: pointer; text-decoration: underline; padding: 0; }
   .link-btn:hover { color: var(--red); }
 
-  footer { margin-top: 1.5rem; font-family: var(--mono); font-size: .62rem; color: var(--muted); text-align: center; }
+  footer { margin-top: 1.5rem; font-family: var(--mono); font-size: .6rem; color: var(--muted); text-align: center; }
 </style>
 </head>
 <body>
+<audio id="audio-player"></audio>
+
 <div class="wrap">
   <header>
     <div class="header-left">
       <h1>yt-dlp downloader</h1>
       <div class="sub">yt-dlp · Tidal (hifi-api) · Nextcloud Sync</div>
     </div>
-    <button class="btn-update" onclick="runUpdate()">⟳ Update yt-dlp</button>
+    <div class="header-btns">
+      <button class="icon-btn" onclick="toggleTheme()" id="theme-btn">🌙 Dark</button>
+      <button class="icon-btn" onclick="runUpdate()">⟳ Update yt-dlp</button>
+    </div>
   </header>
 
   <div class="layout">
@@ -248,6 +340,15 @@
           <div class="mode-desc" id="mode-desc"></div>
         </div>
 
+        <!-- Search type: track / album (Tidal only) -->
+        <div class="search-type-wrap" id="search-type-wrap">
+          <label>Search Type</label>
+          <div class="search-type-row">
+            <button class="stype-btn active" data-stype="track">🎵 Track</button>
+            <button class="stype-btn" data-stype="album">💿 Album</button>
+          </div>
+        </div>
+
         <div class="quality-wrap" id="quality-wrap">
           <label>Quality (Tidal)</label>
           <div class="quality-row">
@@ -260,19 +361,31 @@
 
         <div class="field">
           <label id="url-label">YouTube URL</label>
-          <input type="url" id="url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false">
+          <textarea id="url" rows="2" placeholder="https://www.youtube.com/watch?v=…&#10;Paste one URL per line for batch download" spellcheck="false"></textarea>
+        </div>
+
+        <!-- Playlist toggle (yt-dlp only) -->
+        <div class="playlist-toggle-wrap" id="playlist-toggle-wrap">
+          <div class="playlist-row">
+            <label class="toggle">
+              <input type="checkbox" id="playlist-toggle">
+              <span class="toggle-slider"></span>
+            </label>
+            Download as playlist (all tracks)
+          </div>
         </div>
 
         <div class="field">
           <label>Target Folder</label>
           <div class="dir-grid" id="dir-grid">
-            <span class="dir-loading">Loading folders…</span>
+            <span class="dir-loading">Loading…</span>
           </div>
         </div>
 
         <button class="primary" id="dl-btn" onclick="go()">⬇ Start Download</button>
       </div>
 
+      <!-- Search results -->
       <div class="results-panel" id="results-panel">
         <div class="results-header">
           <span id="results-title">Search Results</span>
@@ -293,6 +406,7 @@
 
     <!-- RIGHT -->
     <div>
+      <!-- Tracklist with preview -->
       <div class="side-panel">
         <div class="side-header">
           <span id="folder-label">Tracks</span>
@@ -301,8 +415,13 @@
         <div class="side-body" id="tracklist-body">
           <div class="track-loading">Loading…</div>
         </div>
+        <div class="player-bar" id="player-bar">
+          <span class="player-title" id="player-title"></span>
+          <button class="player-stop" onclick="stopPreview()">■</button>
+        </div>
       </div>
 
+      <!-- Queue -->
       <div class="side-panel">
         <div class="side-header">
           <span>Queue</span>
@@ -313,6 +432,7 @@
         </div>
       </div>
 
+      <!-- History -->
       <div class="side-panel">
         <div class="side-header">
           <span>History</span>
@@ -322,36 +442,74 @@
           <div class="history-empty">No downloads yet</div>
         </div>
       </div>
+
+      <!-- Server health -->
+      <div class="side-panel">
+        <div class="side-header">
+          <span>API Servers</span>
+          <button class="link-btn" onclick="refreshServers()">Refresh</button>
+        </div>
+        <div class="side-body" id="server-list">
+          <div class="track-loading">Loading…</div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <footer>localhost:5000</footer>
+  <footer>localhost:5000 · <a href="#" style="color:var(--muted)" onclick="if(navigator.serviceWorker){navigator.serviceWorker.register('/sw.js')}">PWA</a></footer>
 </div>
 
 <script>
+  // ── State ─────────────────────────────────────────────────────────────────────
   let currentJobId = null, currentEvt = null;
   let musikDir        = '/musik';
   let selectedDir     = '';
   let selectedMode    = 'auto';
   let selectedQuality = 'LOSSLESS';
+  let selectedStype   = 'track';
+  let playingTrack    = null;
 
   const modeConfig = {
-    auto:  { desc: 'Auto: fetch YouTube title → search Tidal → pick from top 5 → yt-dlp fallback', urlLabel: 'YouTube URL',  placeholder: 'https://www.youtube.com/watch?v=…', inputType: 'url',    btnText: '⬇ Search & Download', quality: true,  tidal: false },
-    tidal: { desc: 'Tidal: search directly and download as FLAC',                                   urlLabel: 'Tidal Search', placeholder: 'Artist – Title …',                inputType: 'search', btnText: '🎵 Search Tidal',      quality: true,  tidal: true  },
-    ytdlp: { desc: 'yt-dlp: download directly from YouTube or other platforms as Opus',             urlLabel: 'URL',          placeholder: 'https://…',                       inputType: 'url',    btnText: '▶ Download with yt-dlp', quality: false, tidal: false },
+    auto:  { desc: 'Auto: fetch YouTube title → search Tidal → pick from top 5 → yt-dlp fallback', urlLabel: 'YouTube URL', placeholder: 'https://www.youtube.com/watch?v=…\nPaste multiple URLs for batch download', inputType: 'url', btnText: '⬇ Search & Download', quality: true,  tidal: false, playlist: false, stype: false },
+    tidal: { desc: 'Tidal: search tracks or albums and download as FLAC',                           urlLabel: 'Search Query', placeholder: 'Artist – Title …',                                                        inputType: 'search', btnText: '🎵 Search Tidal', quality: true, tidal: true,  playlist: false, stype: true  },
+    ytdlp: { desc: 'yt-dlp: download directly from YouTube or other platforms as Opus',             urlLabel: 'URL(s)',       placeholder: 'https://…\nPaste multiple URLs for batch download',                       inputType: 'url', btnText: '▶ Add to Queue',     quality: false, tidal: false, playlist: true,  stype: false },
   };
 
-  // ── Init ─────────────────────────────────────────────────────────────────────
+  // ── Theme ─────────────────────────────────────────────────────────────────────
+  (function() {
+    const saved = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (saved === 'dark' || (!saved && prefersDark)) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      document.getElementById('theme-btn').textContent = '☀ Light';
+    }
+  })();
+
+  function toggleTheme() {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
+    document.getElementById('theme-btn').textContent = isDark ? '🌙 Dark' : '☀ Light';
+    localStorage.setItem('theme', isDark ? 'light' : 'dark');
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────────
   fetch('/api/config').then(r => r.json()).then(cfg => {
     musikDir = cfg.musik_dir.replace(/\/+$/, '');
+    renderServers(cfg.servers);
     loadFolders();
   });
 
   applyMode();
   loadHistory();
   setInterval(pollQueue, 2000);
+  setInterval(refreshServers, 30000);
 
-  // ── Folders (dynamic) ─────────────────────────────────────────────────────────
+  // Register service worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+
+  // ── Folders ───────────────────────────────────────────────────────────────────
   async function loadFolders() {
     const grid = document.getElementById('dir-grid');
     try {
@@ -364,20 +522,19 @@
       grid.innerHTML = '';
       data.folders.forEach((folder, i) => {
         const btn = document.createElement('button');
-        btn.className   = 'dir-btn' + (i === 0 ? ' active' : '');
-        btn.textContent = folder;
-        btn.title       = folder;
+        btn.className      = 'dir-btn' + (i === 0 ? ' active' : '');
+        btn.textContent    = folder;
+        btn.title          = folder;
         btn.dataset.folder = folder;
         btn.addEventListener('click', () => selectFolder(btn, folder));
         grid.appendChild(btn);
       });
-      // Select first folder
       const first = data.folders[0];
       selectedDir = musikDir + '/' + first;
       document.getElementById('folder-label').textContent = first;
       loadTracks(selectedDir);
     } catch {
-      grid.innerHTML = '<span class="dir-loading">Failed to load folders</span>';
+      grid.innerHTML = '<span class="dir-loading">Failed to load</span>';
     }
   }
 
@@ -386,10 +543,11 @@
     btn.classList.add('active');
     selectedDir = musikDir + '/' + folder;
     document.getElementById('folder-label').textContent = folder;
+    stopPreview();
     loadTracks(selectedDir);
   }
 
-  // ── Mode ─────────────────────────────────────────────────────────────────────
+  // ── Mode ──────────────────────────────────────────────────────────────────────
   document.getElementById('mode-row').addEventListener('click', e => {
     const btn = e.target.closest('.mode-btn');
     if (!btn) return;
@@ -407,17 +565,26 @@
     const lbl   = document.getElementById('url-label');
     const inp   = document.getElementById('url');
     const dlBtn = document.getElementById('dl-btn');
-    const qwrap = document.getElementById('quality-wrap');
     desc.textContent  = cfg.desc;
     lbl.textContent   = cfg.urlLabel;
     inp.placeholder   = cfg.placeholder;
-    inp.type          = cfg.inputType;
     dlBtn.textContent = cfg.btnText;
-    qwrap.classList.toggle('visible', cfg.quality);
+    document.getElementById('quality-wrap').classList.toggle('visible', cfg.quality);
+    document.getElementById('search-type-wrap').classList.toggle('visible', cfg.stype);
+    document.getElementById('playlist-toggle-wrap').classList.toggle('visible', cfg.playlist);
     card.className  = 'card' + (cfg.tidal ? ' tidal-mode' : '');
     desc.className  = 'mode-desc' + (cfg.tidal ? ' tidal-mode' : '');
     dlBtn.className = 'primary' + (cfg.tidal ? ' tidal-mode' : selectedMode === 'ytdlp' ? ' ytdlp-mode' : '');
   }
+
+  // ── Search type ───────────────────────────────────────────────────────────────
+  document.getElementById('search-type-wrap').addEventListener('click', e => {
+    const btn = e.target.closest('.stype-btn');
+    if (!btn) return;
+    selectedStype = btn.dataset.stype;
+    document.querySelectorAll('.stype-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
 
   // ── Quality ───────────────────────────────────────────────────────────────────
   document.querySelector('.quality-row').addEventListener('click', e => {
@@ -428,7 +595,7 @@
     selectedQuality = btn.dataset.quality;
   });
 
-  // ── Tracklist ─────────────────────────────────────────────────────────────────
+  // ── Tracklist with audio preview ──────────────────────────────────────────────
   async function loadTracks(path) {
     const body  = document.getElementById('tracklist-body');
     const count = document.getElementById('track-count');
@@ -442,8 +609,52 @@
         count.textContent = '0'; return;
       }
       count.textContent = data.files.length;
-      body.innerHTML = data.files.map(f => `<div class="track-item">${f}</div>`).join('');
+      body.innerHTML = data.files.map(f => `
+        <div class="track-item">
+          <span class="track-name" title="${f}">${f}</span>
+          <button class="play-btn" onclick="previewTrack('${path.replace(/'/g,"\\'")}/${f.replace(/'/g,"\\'")}')" title="Preview">▶</button>
+        </div>`).join('');
     } catch { body.innerHTML = '<div class="track-empty">Error loading</div>'; }
+  }
+
+  function previewTrack(filePath) {
+    const audio = document.getElementById('audio-player');
+    const bar   = document.getElementById('player-bar');
+    const title = document.getElementById('player-title');
+
+    if (playingTrack === filePath) {
+      stopPreview(); return;
+    }
+
+    stopPreview();
+    playingTrack = filePath;
+    const fname = filePath.split('/').pop();
+    audio.src = '/api/play?path=' + encodeURIComponent(filePath);
+    audio.play().catch(() => {});
+    title.textContent = fname;
+    bar.classList.add('show');
+
+    // Highlight button
+    document.querySelectorAll('.play-btn').forEach(b => {
+      if (b.getAttribute('onclick').includes(filePath.replace(/'/g,"\\'"))) {
+        b.classList.add('playing');
+        b.textContent = '■';
+      }
+    });
+
+    audio.onended = () => stopPreview();
+  }
+
+  function stopPreview() {
+    const audio = document.getElementById('audio-player');
+    audio.pause();
+    audio.src = '';
+    playingTrack = null;
+    document.getElementById('player-bar').classList.remove('show');
+    document.querySelectorAll('.play-btn').forEach(b => {
+      b.classList.remove('playing');
+      b.textContent = '▶';
+    });
   }
 
   // ── Status / Log ──────────────────────────────────────────────────────────────
@@ -474,45 +685,112 @@
     document.getElementById('results-list').innerHTML = '';
   }
 
-  function showResults(tracks, quality) {
+  function showResults(tracks, quality, searchType) {
     const list = document.getElementById('results-list');
+    const count = tracks.length;
     document.getElementById('results-title').textContent =
-      `${tracks.length} result${tracks.length !== 1 ? 's' : ''} on Tidal`;
+      `${count} ${searchType === 'album' ? 'album' : 'track'}${count !== 1 ? 's' : ''} on Tidal`;
     list.innerHTML = '';
+
     tracks.forEach(t => {
       const item = document.createElement('div');
       item.className = 'result-item';
-      item.innerHTML = `
-        <div class="result-info">
-          <div class="result-title">${t.title}</div>
-          <div class="result-artist">${t.artist}</div>
-          ${t.existing ? `<div class="result-duplicate">⚠ Already exists: ${t.existing}</div>` : ''}
-        </div>
-        <div class="result-meta">
-          <div>${t.duration}</div>
-          <div class="size">${t.size_mb} MB</div>
-        </div>`;
-      item.addEventListener('click', () => addToQueue({
-        mode: 'tidal', output_dir: selectedDir, quality: quality || selectedQuality,
-        track_id: t.id, track_title: t.title, track_artist: t.artist,
-        label: `${t.artist} – ${t.title}`,
-      }));
+
+      if (searchType === 'album') {
+        item.innerHTML = `
+          <span class="result-badge">Album</span>
+          <div class="result-info">
+            <div class="result-title">${t.title}</div>
+            <div class="result-artist">${t.artist}</div>
+          </div>`;
+        item.addEventListener('click', () => downloadAlbum(t, quality));
+      } else {
+        item.innerHTML = `
+          <span class="result-badge">Track</span>
+          <div class="result-info">
+            <div class="result-title">${t.title}</div>
+            <div class="result-artist">${t.artist}</div>
+            ${t.existing ? `<div class="result-duplicate">⚠ Already exists: ${t.existing}</div>` : ''}
+          </div>
+          <div class="result-meta">
+            <div>${t.duration}</div>
+            <div class="size">${t.size_mb} MB</div>
+          </div>`;
+        item.addEventListener('click', () => addToQueue({
+          mode: 'tidal', output_dir: selectedDir, quality: quality || selectedQuality,
+          track_id: t.id, track_title: t.title, track_artist: t.artist,
+          label: `${t.artist} – ${t.title}`,
+        }));
+      }
       list.appendChild(item);
     });
     document.getElementById('results-panel').classList.add('show');
   }
 
+  async function downloadAlbum(album, quality) {
+    closeResults();
+    setStatus('running', `📀 Loading album tracks: ${album.title}…`);
+    // For albums, we search for tracks from this album using track search
+    const res  = await fetch('/api/search', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ mode: 'tidal', query: `${album.artist} ${album.title}`, quality, output_dir: selectedDir, search_type: 'track' })
+    });
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n'); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        let m; try { m = JSON.parse(line.slice(6)); } catch { continue; }
+        if (m.type === 'results') {
+          const trackIds = m.tracks.map(t => t.id);
+          addToQueue({
+            mode: 'tidal', output_dir: selectedDir, quality: quality || selectedQuality,
+            track_ids: trackIds,
+            label: `Album: ${album.artist} – ${album.title} (${trackIds.length} tracks)`,
+          });
+          setStatus('', '');
+        } else if (m.type === 'error') {
+          setStatus('error', m.text);
+        }
+      }
+    }
+  }
+
   // ── Main go ───────────────────────────────────────────────────────────────────
   async function go() {
-    const input = document.getElementById('url').value.trim();
-    if (!input) { alert('Please enter a URL or search query.'); return; }
+    const rawInput = document.getElementById('url').value.trim();
+    if (!rawInput) { alert('Please enter a URL or search query.'); return; }
     if (!selectedDir) { alert('Please wait for folders to load.'); return; }
 
+    const urls = rawInput.split('\n').map(u => u.trim()).filter(Boolean);
+    const isPlaylist = document.getElementById('playlist-toggle').checked;
+
+    // yt-dlp: batch support
     if (selectedMode === 'ytdlp') {
-      addToQueue({ mode: 'ytdlp', url: input, output_dir: selectedDir, quality: selectedQuality, label: input });
+      for (const url of urls) {
+        addToQueue({ mode: 'ytdlp', url, output_dir: selectedDir, quality: selectedQuality,
+                     is_playlist: isPlaylist, label: url });
+      }
+      document.getElementById('url').value = '';
       return;
     }
 
+    // Auto: batch support
+    if (selectedMode === 'auto' && urls.length > 1) {
+      for (const url of urls) {
+        addToQueue({ mode: 'auto', url, output_dir: selectedDir, quality: selectedQuality, label: url });
+      }
+      document.getElementById('url').value = '';
+      return;
+    }
+
+    // Search modes (single query)
     closeResults();
     document.getElementById('dl-btn').disabled = true;
     setStatus('running', '🔍 Searching…');
@@ -520,7 +798,10 @@
     const res = await fetch('/api/search', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ mode: selectedMode, query: input, quality: selectedQuality, output_dir: selectedDir })
+      body: JSON.stringify({
+        mode: selectedMode, query: urls[0], quality: selectedQuality,
+        output_dir: selectedDir, search_type: selectedStype
+      })
     });
 
     const reader  = res.body.getReader();
@@ -540,7 +821,7 @@
         } else if (m.type === 'fallback') {
           setStatus('', '');
           document.getElementById('dl-btn').disabled = false;
-          addToQueue({ mode: selectedMode, url: input, output_dir: selectedDir, quality: selectedQuality, label: input });
+          addToQueue({ mode: selectedMode, url: urls[0], output_dir: selectedDir, quality: selectedQuality, label: urls[0] });
           return;
         } else if (m.type === 'error') {
           document.getElementById('dl-btn').disabled = false;
@@ -548,7 +829,7 @@
         } else if (m.type === 'results') {
           document.getElementById('dl-btn').disabled = false;
           setStatus('', '');
-          showResults(m.tracks, m.quality);
+          showResults(m.tracks, m.quality, m.search_type);
         }
       }
     }
@@ -614,9 +895,15 @@
       if (m.type === 'log')   log(m.text);
       if (m.type === 'done')  { log(m.text, 'ok'); setStatus('done', '✅ Done!'); }
       if (m.type === 'error') { log(m.text, 'err'); setStatus('error', 'Error.'); }
-      if (m.type === 'end')   { currentEvt.close(); currentEvt = null; currentJobId = null; loadTracks(selectedDir); loadHistory(); pollQueue(); }
+      if (m.type === 'end')   {
+        currentEvt.close(); currentEvt = null; currentJobId = null;
+        loadTracks(selectedDir); loadHistory(); pollQueue();
+      }
     };
-    currentEvt.onerror = () => { log('Connection lost.', 'err'); setStatus('error', 'Connection error.'); currentEvt = null; currentJobId = null; };
+    currentEvt.onerror = () => {
+      log('Connection lost.', 'err'); setStatus('error', 'Connection error.');
+      currentEvt = null; currentJobId = null;
+    };
   }
 
   async function abortCurrent() {
@@ -660,7 +947,30 @@
     loadHistory();
   }
 
-  // ── yt-dlp Update ─────────────────────────────────────────────────────────────
+  // ── Server health ─────────────────────────────────────────────────────────────
+  async function refreshServers() {
+    try {
+      const res  = await fetch('/api/config');
+      const data = await res.json();
+      renderServers(data.servers);
+    } catch {}
+  }
+
+  function renderServers(servers) {
+    if (!servers) return;
+    const list = document.getElementById('server-list');
+    list.innerHTML = `<div class="server-list">${servers.map(s => {
+      const host    = s.url.replace(/^https?:\/\//, '');
+      const latency = s.latency != null ? `${s.latency}ms` : '—';
+      return `<div class="server-item">
+        <div class="server-dot ${s.healthy ? 'healthy' : 'failed'}"></div>
+        <span class="server-name" title="${s.url}">${host}</span>
+        <span class="server-latency">${s.healthy ? latency : 'down'}</span>
+      </div>`;
+    }).join('')}</div>`;
+  }
+
+  // ── yt-dlp update ─────────────────────────────────────────────────────────────
   async function runUpdate() {
     clearLog();
     document.getElementById('t-label').textContent = 'yt-dlp update';

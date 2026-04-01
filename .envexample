@@ -1,28 +1,27 @@
 # ── Required ──────────────────────────────────────────────────────────────────
 
-# Local base directory — all subdirectories become target folder buttons in the UI
+# Local base directory. All subdirectories become target folder buttons in the UI.
 MUSIK_DIR=/musik
 
-# Path to the yt-dlp binary (defaults to ~/yt-dlp_linux if not set)
+# Path to the yt-dlp binary
 YTDLP_BIN=/home/youruser/yt-dlp_linux
 
 
 # ── hifi-api (Tidal) ──────────────────────────────────────────────────────────
 # Comma-separated list of hifi-api instance URLs.
-# If not set, the built-in public pool of 8 servers is used.
-# For reliable downloads, run your own instance (see README).
-# HIFI_API_URL=http://localhost:8000,https://api.monochrome.tf
+# Defaults to built-in pool of 8 public servers if not set.
+# For reliable lossless downloads, run your own instance (see README).
+HIFI_API_URL=HIFI_API_URL=https://hifi.geeked.wtf,https://frankfurt-1.monochrome.tf,https://api.monochrome.tf,https://wolf.qqdl.site,http://localhost:8000,
 
 
-# ── Download History ──────────────────────────────────────────────────────────
-# Path to the JSON file where download history is stored.
+# ── History ───────────────────────────────────────────────────────────────────
+# Where to store the download history JSON file.
 # Defaults to one level above MUSIK_DIR.
 # HISTORY_FILE=/ssd-daten/download_history.json
 
 
 # ── Nextcloud Sync (optional) ─────────────────────────────────────────────────
-# Set NEXTCLOUD_ENABLED=true to sync after every download.
-# All NEXTCLOUD_* variables below are required if enabled.
+# Set to true to sync after every completed download.
 
 NEXTCLOUD_ENABLED=false
 NEXTCLOUD_USER=your_username
