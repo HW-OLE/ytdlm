@@ -1,6 +1,6 @@
 # Credentials - never commit these
 .env
-download-history.json
+download_history.json
 # Python
 __pycache__/
 *.py[cod]
