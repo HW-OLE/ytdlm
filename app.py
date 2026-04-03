@@ -176,22 +176,47 @@ def _add_history(title, artist, mode, folder, source="tidal", quality=None):
 def run_sync(q):
     if not NC_ENABLED:
         return True
+
     if not all([NC_USER, NC_PASSWORD, NC_URL]):
         q.put({"type": "log", "text": "⚠ Nextcloud not configured — sync skipped."})
         return True
+
     q.put({"type": "log", "text": "⟳ Nextcloud sync running…"})
-    cmd = ["nextcloudcmd", "--user", NC_USER, "--password", NC_PASSWORD,
-           "--path", NC_REMOTE_PATH, f"{MUSIK_DIR}/", NC_URL]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, bufsize=1)
-    keep = ["error", "warning", "upload", "download", "conflict", "finish", "aborted"]
+    cmd = [
+        "nextcloudcmd",
+        "--non-interactive",
+        "--user", NC_USER,
+        "--password", NC_PASSWORD,
+        "--path", NC_REMOTE_PATH,
+        "--max-sync-retries", "1",
+        f"{MUSIK_DIR}/",
+        NC_URL.rstrip("/"),
+    ]
+
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1
+    )
+
+    saw_429 = False
     for line in proc.stdout:
         l = line.rstrip()
-        if any(k in l.lower() for k in keep):
+        lower = l.lower()
+        if any(k in lower for k in ["error", "warning", "upload", "download", "conflict", "finish", "aborted", "429"]):
             q.put({"type": "log", "text": l})
-    proc.wait()
-    return proc.returncode in (0, 1)
+        if "429" in lower or "too many requests" in lower:
+            saw_429 = True
 
+    proc.wait()
+
+    if saw_429:
+        q.put({"type": "log", "text": "⚠ Nextcloud rate-limited the sync. Try again later or sync less often."})
+        return False
+
+    return proc.returncode in (0, 1)
 
 # ── yt-dlp ────────────────────────────────────────────────────────────────────
 

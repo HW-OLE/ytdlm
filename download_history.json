@@ -1,1 +1,83 @@
-[]
+[
+  {
+    "title": "https://music.youtube.com/watch?v=j73pTROq9_A",
+    "artist": "",
+    "mode": "ytdlp",
+    "source": "ytdlp",
+    "folder": "/ssd-daten/musik/Pop",
+    "quality": "",
+    "timestamp": "2026-04-03T18:08:55.575025+00:00"
+  },
+  {
+    "title": "Prayer in C (Robin Schulz Radio Edit)",
+    "artist": "Lilly Wood and The Prick",
+    "mode": "tidal",
+    "source": "tidal",
+    "folder": "/ssd-daten/musik/Pop",
+    "quality": "LOSSLESS",
+    "timestamp": "2026-04-03T18:03:25.675285+00:00"
+  },
+  {
+    "title": "Kernkraft 400 (Original Radio Edit)",
+    "artist": "Zombie Nation",
+    "mode": "tidal",
+    "source": "tidal",
+    "folder": "/ssd-daten/musik/Pop",
+    "quality": "LOSSLESS",
+    "timestamp": "2026-04-03T18:01:20.439021+00:00"
+  },
+  {
+    "title": "Kernkraft 400 (Original Mix)",
+    "artist": "Zombie Nation",
+    "mode": "tidal",
+    "source": "tidal",
+    "folder": "/ssd-daten/musik/Pop",
+    "quality": "LOSSLESS",
+    "timestamp": "2026-04-03T18:00:57.197183+00:00"
+  },
+  {
+    "title": "You Get What You Give",
+    "artist": "New Radicals",
+    "mode": "tidal",
+    "source": "tidal",
+    "folder": "/ssd-daten/musik/Rock",
+    "quality": "LOSSLESS",
+    "timestamp": "2026-04-03T18:00:32.915153+00:00"
+  },
+  {
+    "title": "Kernkraft 400 (Original Radio Edit)",
+    "artist": "Zombie Nation",
+    "mode": "tidal",
+    "source": "tidal",
+    "folder": "/ssd-daten/musik/Pop",
+    "quality": "LOSSLESS",
+    "timestamp": "2026-04-03T17:58:27.586990+00:00"
+  },
+  {
+    "title": "You Get What You Give",
+    "artist": "New Radicals",
+    "mode": "tidal",
+    "source": "tidal",
+    "folder": "/ssd-daten/musik/Rock",
+    "quality": "LOSSLESS",
+    "timestamp": "2026-04-03T17:54:18.732044+00:00"
+  },
+  {
+    "title": "You Get What You Give",
+    "artist": "New Radicals",
+    "mode": "tidal",
+    "source": "tidal",
+    "folder": "/ssd-daten/musik/Rock",
+    "quality": "LOSSLESS",
+    "timestamp": "2026-04-03T17:50:58.458302+00:00"
+  },
+  {
+    "title": "You Get What You Give",
+    "artist": "New Radicals",
+    "mode": "tidal",
+    "source": "tidal",
+    "folder": "/ssd-daten/musik/Rock",
+    "quality": "LOSSLESS",
+    "timestamp": "2026-04-03T17:37:11.718977+00:00"
+  }
+]

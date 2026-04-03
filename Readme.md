@@ -1,4 +1,4 @@
-# yt-dlp Downloader
+# ytdlm Downloader
 
 A self-hosted web app for downloading audio from YouTube and other platforms, with Tidal lossless support via hifi-api, full metadata embedding, a download queue, download history, and optional Nextcloud sync.
 

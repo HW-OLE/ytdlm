@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yt-dlp Downloader</title>
+<title>ytdlm Downloader - Your favorite Music downloader</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#1a1a2e">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -257,8 +257,10 @@
   .queue-empty { padding: .75rem; font-family: var(--mono); font-size: .68rem; color: var(--muted); text-align: center; font-style: italic; }
 
   /* History */
-  .history-item { padding: .5rem .875rem; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: .68rem; }
-  .history-item:last-child { border-bottom: none; }
+  .history-item { padding: .5rem .875rem; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: .68rem; display: flex; align-items: center; gap: .5rem; }
+  .history-info { flex: 1; min-width: 0; }
+  .history-play-btn { background: transparent; border: none; color: var(--muted); cursor: pointer; font-size: .72rem; flex-shrink: 0; padding: .1rem .2rem; transition: color .15s; }
+  .history-play-btn:hover, .history-play-btn.playing { color: var(--tidal); }  .history-item:last-child { border-bottom: none; }
   .history-title { color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .history-meta { color: var(--muted); font-size: .6rem; margin-top: .08rem; }
   .history-empty { padding: .75rem; font-family: var(--mono); font-size: .68rem; color: var(--muted); text-align: center; font-style: italic; }
@@ -317,7 +319,7 @@
 <div class="wrap">
   <header>
     <div class="header-left">
-      <h1>yt-dlp downloader</h1>
+      <h1>ytdlm downloader</h1>
       <div class="sub">yt-dlp · Tidal (hifi-api) · Nextcloud Sync</div>
     </div>
     <div class="header-btns">
@@ -441,6 +443,10 @@
         <div class="side-body" id="history-body">
           <div class="history-empty">No downloads yet</div>
         </div>
+        <div id="history-player-bar" style="display:none;align-items:center;gap:.6rem;padding:.4rem .875rem;border-top:1px solid var(--border);font-family:var(--mono);font-size:.65rem;background:var(--bg)">
+        <span id="history-player-title" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)"></span>
+        <button onclick="_stopHistoryPreview()" style="background:transparent;border:none;color:var(--muted);cursor:pointer">■</button>
+</div>
       </div>
 
       <!-- Server health -->
@@ -915,6 +921,30 @@
   }
 
   // ── History ───────────────────────────────────────────────────────────────────
+ 
+ let _playingHistoryIdx = null;
+function _stopHistoryPreview() {
+  const a = document.getElementById('history-audio');
+  if (a) { a.pause(); a.src = ''; }
+  _playingHistoryIdx = null;
+  document.querySelectorAll('.history-play-btn').forEach(b => { b.classList.remove('playing'); b.textContent = '▶'; });
+  document.getElementById('history-player-bar').style.display = 'none';
+}
+function previewHistory(idx, title) {
+  if (_playingHistoryIdx === idx) { _stopHistoryPreview(); return; }
+  _stopHistoryPreview();
+  let a = document.getElementById('history-audio');
+  if (!a) { a = document.createElement('audio'); a.id = 'history-audio'; a.style.display = 'none'; document.body.appendChild(a); }
+  a.src = `/api/history/play?idx=${idx}`;
+  a.onerror = () => { fetch(`/api/history/play?idx=${idx}`).then(r=>r.json()).then(d=>setStatus('error', d.error||'File not found')).catch(()=>{}); _stopHistoryPreview(); };
+  a.play().catch(e => { setStatus('error', `Cannot play: ${e.message}`); _stopHistoryPreview(); });
+  _playingHistoryIdx = idx;
+  document.querySelectorAll('.history-play-btn').forEach((b,i) => { if(i===idx){b.classList.add('playing');b.textContent='■';} });
+  document.getElementById('history-player-bar').style.display = 'flex';
+  document.getElementById('history-player-title').textContent = title;
+  a.onended = () => _stopHistoryPreview();
+}
+ 
   async function loadHistory() {
     try {
       const res  = await fetch('/api/history');
@@ -935,9 +965,12 @@
       const src    = e.source === 'tidal' ? '🎵' : '▶';
       const folder = e.folder ? e.folder.split('/').pop() : '';
       return `<div class="history-item">
-        <div class="history-title">${src} ${title}</div>
-        <div class="history-meta">${ts}${artist}${folder ? ' · ' + folder : ''}</div>
-      </div>`;
+      <div class="history-info">
+      <div class="history-title">${src} ${title}</div>
+      <div class="history-meta">${ts}${artist}${folder ? ' · ' + folder : ''}</div>
+    </div>
+    <button class="history-play-btn" onclick="previewHistory(${idx},'${title.replace(/'/g,"\\'")}')" title="Play">▶</button>
+    </div>`;
     }).join('');
   }
 
